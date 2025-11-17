@@ -1,0 +1,15 @@
+crashpad_handler.exe
+errorreporter.exe
+install.exe
+report.exe
+setup.exe
+unins000.exe
+unins001.exe
+unins002.exe
+uninstall.exe
+update.exe
+updater.exe
+vc_redist.x64.exe
+vc_redist.x86.exe
+vcredist_x64.exe
+vcredist_x86.exe
