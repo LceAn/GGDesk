@@ -5,7 +5,8 @@ import configparser
 from collections import defaultdict
 
 # --- 1. 配置项与常量 ---
-OUTPUT_FOLDER_NAME = "MyTestShortcuts"
+# 【新】 v8.4: 重命名为默认值，真正的路径由前端配置
+DEFAULT_OUTPUT_FOLDER_NAME = "MyTestShortcuts"
 CONFIG_FILE = "config.ini"
 FILENAME_BLOCKLIST_FILE = "blocklist.txt"
 DEFAULT_BLOCKLIST = {
@@ -14,6 +15,7 @@ DEFAULT_BLOCKLIST = {
     'vcredist_x64.exe', 'vcredist_x86.exe', 'vc_redist.x64.exe', 'vc_redist.x86.exe',
     'crashpad_handler.exe', 'errorreporter.exe', 'report.exe',
 }
+
 
 # --- 2. 核心功能 ---
 def create_shortcut(target_path, shortcut_path):
@@ -31,6 +33,7 @@ def create_shortcut(target_path, shortcut_path):
         return True, f"成功: {os.path.basename(shortcut_path)}"
     except Exception as e:
         return False, f"失败: {os.path.basename(target_path)} | {e}"
+
 
 # --- 3. 黑名单逻辑 (纯IO) ---
 def load_blocklist():
@@ -53,6 +56,7 @@ def load_blocklist():
         status = save_blocklist(blocklist)
         return blocklist, f"未找到黑名单，已创建默认: {FILENAME_BLOCKLIST_FILE}。{status[1]}"
 
+
 def save_blocklist(blocklist_set):
     """
     将黑名单集合保存到文件
@@ -66,26 +70,29 @@ def save_blocklist(blocklist_set):
     except Exception as e:
         return False, f"无法写入 {FILENAME_BLOCKLIST_FILE}:\n{e}"
 
-# --- 4. 【新】v8.1 配置文件逻辑 ---
+
+# --- 4. v8.1 配置文件逻辑 ---
 def load_config():
     """加载 config.ini"""
     config = configparser.ConfigParser()
     if os.path.exists(CONFIG_FILE):
-        config.read(CONFIG_FILE)
-    
+        config.read(CONFIG_FILE, encoding='utf-8')  # 【新】v8.4 增加 utf-8 支持
+
     # 确保 'Settings' 节存在
     if 'Settings' not in config:
         config['Settings'] = {}
-        
+
     return config
+
 
 def save_config(config):
     """保存 config.ini"""
     try:
-        with open(CONFIG_FILE, 'w') as configfile:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as configfile:
             config.write(configfile)
     except Exception as e:
-        print(f"警告：无法保存配置 {CONFIG_FILE}: {e}") # 后端日志
+        print(f"警告：无法保存配置 {CONFIG_FILE}: {e}")  # 后端日志
+
 
 # --- 5. 核心 v7 扫描逻辑 (已解耦) ---
 
@@ -93,20 +100,21 @@ def run_v6_heuristic(program_name, exe_paths):
     """v6 启发式：基于文件夹名的匹配"""
     keywords = set(re.split(r'[_\-\s\d.]+', program_name.lower()))
     keywords.discard('')
-    
+
     if not keywords:
         return []
-        
+
     suggestions = []
     for path in exe_paths:
         exe_name = os.path.basename(path).lower()
         for key in keywords:
             if key in exe_name:
                 suggestions.append(path)
-                break 
-    
+                break
+
     suggestions.sort(key=len)
-    return suggestions[:1] # 只建议最好的 1 个
+    return suggestions[:1]  # 只建议最好的 1 个
+
 
 def discover_programs(scan_path, blocklist, log_callback):
     """
@@ -115,8 +123,8 @@ def discover_programs(scan_path, blocklist, log_callback):
     """
     # 1. 递归扫描，收集所有 .exe 及其文件夹
     exe_folders = defaultdict(list)
-    all_exes_data = {} 
-    
+    all_exes_data = {}
+
     log_callback(f"--- 开始程序发现: {scan_path} ---")
     for root, dirs, files in os.walk(scan_path, topdown=True):
         current_exes = []
@@ -125,7 +133,7 @@ def discover_programs(scan_path, blocklist, log_callback):
                 if file.lower() in blocklist:
                     log_callback(f"[过滤] {os.path.join(root, file)}")
                     continue
-                
+
                 try:
                     full_path = os.path.join(root, file)
                     size_bytes = os.path.getsize(full_path)
@@ -133,7 +141,7 @@ def discover_programs(scan_path, blocklist, log_callback):
                     all_exes_data[full_path] = (full_path, file, size_bytes, os.path.relpath(root, scan_path))
                 except (IOError, OSError) as e:
                     log_callback(f"[!] 无法访问: {file} | {e}")
-                        
+
         if current_exes:
             exe_folders[root] = current_exes
 
@@ -151,13 +159,13 @@ def discover_programs(scan_path, blocklist, log_callback):
             if not current_folder.startswith(last_folder + os.path.sep):
                 top_level_folders.append(current_folder)
                 last_folder = current_folder
-    
+
     log_callback(f"发现 {len(top_level_folders)} 个顶层 .exe 目录...")
 
     # 3. 确定“程序根目录” (bin 逻辑)
     program_groups = defaultdict(list)
-    program_roots = {} 
-    
+    program_roots = {}
+
     for folder in top_level_folders:
         folder_name = os.path.basename(folder)
         if folder_name.lower() == 'bin':
@@ -166,15 +174,15 @@ def discover_programs(scan_path, blocklist, log_callback):
         else:
             program_root = folder
             program_name = folder_name
-        
+
         is_subpath = False
         for existing_root in list(program_roots.keys()):
             if program_root.startswith(existing_root + os.path.sep):
                 is_subpath = True
-                break 
+                break
             if existing_root.startswith(program_root + os.path.sep):
                 del program_roots[existing_root]
-        
+
         if not is_subpath:
             program_roots[program_root] = program_name
 
@@ -193,15 +201,15 @@ def discover_programs(scan_path, blocklist, log_callback):
     for root, exe_paths in program_groups.items():
         name = program_roots[root]
         suggested_exes = run_v6_heuristic(name, exe_paths)
-        
+
         program_data = {
             'name': name,
             'root_path': root,
-            'all_exes': [all_exes_data[path] for path in exe_paths], 
-            'selected_exes': tuple(suggested_exes) 
+            'all_exes': [all_exes_data[path] for path in exe_paths],
+            'selected_exes': tuple(suggested_exes)
         }
         final_programs.append(program_data)
-    
+
     log_callback(f"--- 发现完成 ---")
     log_callback(f"总共发现 {len(final_programs)} 个潜在程序组。")
     return sorted(final_programs, key=lambda p: p['name'])
