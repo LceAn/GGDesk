@@ -582,6 +582,7 @@ class MainWindow(QMainWindow):
             qApp.setStyleSheet(DARK_STYLESHEET)
 
     # 【新】v8.4 多线程扫描
+    # 【新】v8.4.1 多线程扫描 (修复版)
     def ask_scan_path(self):
         # 检查是否已在扫描
         if self.scan_thread is not None and self.scan_thread.isRunning():
@@ -603,7 +604,9 @@ class MainWindow(QMainWindow):
         self.program_count_label.setText("扫描中...")
 
         # 创建工作线程
-        self.scan_thread = QThread()
+        # 【关键修复点 2】将 QThread 设为 self (MainWindow) 的子对象
+        # 这样可以确保它不会被意外的垃圾回收
+        self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(scan_path=path_to_scan, blocklist=self.blocklist)
         self.scan_worker.moveToThread(self.scan_thread)
 
@@ -612,11 +615,22 @@ class MainWindow(QMainWindow):
         self.scan_worker.finished.connect(self.on_scan_finished)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.finished.connect(self.scan_thread.quit)
-        self.scan_worker.finished.connect(self.scan_worker.deleteLater)
+
+        # 线程 *确认* 已退出 -> *然后* 再安全地删除
+        self.scan_thread.finished.connect(self.scan_worker.deleteLater)
         self.scan_thread.finished.connect(self.scan_thread.deleteLater)
+        # 【关键修复点 3】在删除后清理引用
+        self.scan_thread.finished.connect(self.clear_thread_references)
 
         # 启动线程
         self.scan_thread.start()
+
+        # 【新】v8.4.1 清理函数
+        @Slot()
+        def clear_thread_references(self):
+            """在线程安全退出后清理对它们的引用"""
+            self.scan_thread = None
+            self.scan_worker = None
 
     # 【新】v8.4 扫描完成的槽
     @Slot(list)
@@ -630,6 +644,13 @@ class MainWindow(QMainWindow):
         self.btn_scan.setText("选择目录...")
         self.btn_create.setEnabled(len(self.programs) > 0)
         self.scan_thread = None  # 清理线程
+        self.scan_worker = None
+
+    @Slot()
+    def clear_thread_references(self):
+        """在线程安全退出后清理对它们的引用"""
+        self.log("...线程资源已清理。")
+        self.scan_thread = None
         self.scan_worker = None
 
     def populate_main_treeview(self):
