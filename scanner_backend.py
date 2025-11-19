@@ -15,12 +15,12 @@ DEFAULT_BLOCKLIST = {
     'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
     'vcredist_x64.exe', 'vcredist_x86.exe', 'vc_redist.x64.exe', 'vc_redist.x86.exe',
     'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe',
-    'splash.exe', 'unitycrashhandler64.exe'  # 补充一些常见的无关程序
+    'splash.exe', 'unitycrashhandler64.exe'
 }
 
 DEFAULT_IGNORED_DIRS = {
     'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
-    'venv', 'env', 'dist', 'build', 'tmp', 'temp', 'jbr', 'jre', 'lib', 'plugins',  # JetBrains/Java 常见干扰目录
+    'venv', 'env', 'dist', 'build', 'tmp', 'temp', 'jbr', 'jre', 'lib', 'plugins',
     'Windows', 'ProgramData', '$RECYCLE.BIN', 'System Volume Information'
 }
 
@@ -39,7 +39,31 @@ def create_shortcut(target_path, shortcut_path):
         return False, f"失败: {os.path.basename(target_path)} | {e}"
 
 
-# --- 3. IO 逻辑 (保持不变) ---
+# 【Beta 4.3 新增】扫描现有的快捷方式
+def scan_existing_shortcuts(folder_path):
+    """
+    扫描指定目录下的 .lnk 文件，返回列表 [(name, target), ...]
+    """
+    results = []
+    if not os.path.exists(folder_path):
+        return results
+
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+        for file in os.listdir(folder_path):
+            if file.lower().endswith(".lnk"):
+                full_path = os.path.join(folder_path, file)
+                try:
+                    shortcut = shell.CreateShortCut(full_path)
+                    results.append((file, shortcut.TargetPath))
+                except:
+                    results.append((file, "无法读取目标"))
+    except Exception as e:
+        print(f"Error scanning shortcuts: {e}")
+    return results
+
+
+# --- 3. IO 逻辑 ---
 def _load_set_from_file(filename, default_set):
     result_set = set(default_set)
     if os.path.exists(filename):
@@ -94,19 +118,10 @@ def save_config(config):
         print(f"Config Error: {e}")
 
 
-# --- 5. 【Beta 4.1 核心升级】智能评分算法 ---
+# --- 5. 智能评分算法 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
-    """
-    算法：基于 分词匹配 (Token Matching) 的评分系统
-    """
-    # 1. 提取特征词 (Tokens)
-    # "IntelliJ IDEA 2025.2.4" -> ['intellij', 'idea', '2025', '2', '4']
-    # 过滤掉纯数字和太短的词
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
-
-    # 全名压缩 (作为保底匹配)
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
-
     scored_list = []
 
     for path in exe_paths:
@@ -114,34 +129,24 @@ def smart_rank_executables(program_name, exe_paths, root_path):
         filename = os.path.basename(path).lower()
         name_no_ext = os.path.splitext(filename)[0]
 
-        # --- 规则 A: 分词精确匹配 (权重最高: 150分) ---
-        # 解决了 "IntelliJ IDEA" vs "idea64.exe" 的问题
         for token in tokens:
             if token == name_no_ext:
                 score += 150
             elif token in name_no_ext:
-                score += 80  # 包含特征词 (如 idea64 包含 idea)
+                score += 80
 
-        # --- 规则 B: 全名匹配 (权重: 100分) ---
         if name_no_ext == clean_name:
             score += 100
         elif clean_name in name_no_ext:
             score += 50
 
-        # --- 规则 C: 通用启动器 (权重: 20分) ---
-        # 只有在没有匹配到特征词时，这个分数才有用
         if name_no_ext in ['launcher', 'main', 'start', 'app', 'run']: score += 20
-
-        # --- 规则 D: 架构偏好 (权重: 10分) ---
         if '64' in name_no_ext: score += 10
 
-        # --- 规则 E: 路径深度惩罚 (每层 -15分) ---
-        # 主程序通常在根目录或 bin 目录下，不想选太深的文件
         rel_path = os.path.relpath(path, root_path)
         depth = rel_path.count(os.path.sep)
         score -= (depth * 15)
 
-        # --- 规则 F: 负面词惩罚 (大幅扣分) ---
         negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
                              'uninstall', 'eula']
         for kw in negative_keywords:
@@ -149,13 +154,7 @@ def smart_rank_executables(program_name, exe_paths, root_path):
 
         scored_list.append((score, path))
 
-    # 排序
     scored_list.sort(key=lambda x: x[0], reverse=True)
-
-    # 调试日志 (可选，开发时打开)
-    # print(f"--- Scoring for {program_name} ---")
-    # for s, p in scored_list[:3]: print(f"  {s}: {os.path.basename(p)}")
-
     return [x[1] for x in scored_list]
 
 
@@ -164,12 +163,11 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
     exe_folders = defaultdict(list)
     all_exes_data = {}
 
-    log_callback(f"--- [Beta 4.1] 启动智能扫描: {scan_path} ---")
+    log_callback(f"--- [Beta 4.3] 启动智能扫描: {scan_path} ---")
 
     for root, dirs, files in os.walk(scan_path, topdown=True):
         if check_stop_callback and check_stop_callback(): return []
 
-        # 目录剪枝 (忽略大小写比较)
         ignored_lower = {d.lower() for d in ignored_dirs}
         dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
@@ -190,7 +188,6 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
         log_callback("未找到有效程序。")
         return []
 
-    # 整理顶层目录
     sorted_folders = sorted(exe_folders.keys())
     top_level_folders = []
     if sorted_folders:
