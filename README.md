@@ -53,3 +53,33 @@
 ### 安装依赖
 ```bash
 pip install PySide6 pywin32
+````
+
+### 运行程序
+
+```bash
+python main.py
+```
+
+-----
+
+## 📂 项目结构简述
+
+GGDesk 采用 **前后端分离** 与 **模块化** 的设计架构。
+
+  * **前端 (Frontend)**：基于 `PySide6 (Qt)`，负责界面渲染与交互。
+  * **后端 (Backend)**：纯 Python 逻辑，负责文件扫描、系统调用与配置管理。
+  * **通信 (Communication)**：二者通过 Qt 的信号槽 (`Signal/Slot`) 机制解耦，确保界面流畅。
+
+*(详细代码结构说明请查阅 [ProjectStructure](https://www.google.com/search?q=./README/ProjectStructure.md))*
+
+-----
+
+## 👨‍💻 关于作者
+
+**By LceAn**
+
+  * GitHub: [https://github.com/LceAn](https://github.com/LceAn)
+  * Project: [https://github.com/LceAn/GGDesk](https://github.com/LceAn/GGDesk)
+
+-----
