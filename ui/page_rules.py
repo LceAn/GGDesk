@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QCheckBox, QGroupBox, QSpinBox, QRadioButton,
-    QButtonGroup, QDialog, QFrame, QMessageBox
+    QButtonGroup, QDialog, QFrame, QMessageBox, QGridLayout
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 import scanner_backend as backend
 
 
@@ -47,29 +48,60 @@ class RulesPage(QWidget):
         layout.setSpacing(20)
         layout.addWidget(QLabel("🛡️ 扫描规则配置"), 0, Qt.AlignmentFlag.AlignBottom)
 
-        # 1. 文件类型
-        g_ext = QGroupBox("目标文件类型")
-        l_ext = QHBoxLayout(g_ext)
-        self.chk_exe = QCheckBox("*.exe");
-        self.chk_exe.setChecked(True);
-        self.chk_exe.setEnabled(False);
-        l_ext.addWidget(self.chk_exe)
-        self.chk_bat = QCheckBox("*.bat (Beta 6)");
-        self.chk_bat.setEnabled(False);
-        l_ext.addWidget(self.chk_bat)
-        self.chk_lnk = QCheckBox("*.lnk (Beta 6)");
-        self.chk_lnk.setEnabled(False);
-        l_ext.addWidget(self.chk_lnk)
-        l_ext.addStretch();
-        layout.addWidget(g_ext)
+        # --- 1. 目标文件与策略 (Grid Layout) ---
+        g_target = QGroupBox("扫描目标与策略 (Target & Strategy)")
+        l_target = QVBoxLayout(g_target);
+        l_target.setSpacing(15)
 
-        # 2. 过滤规则
-        g_filter = QGroupBox("过滤规则")
+        # 1.1 文件类型 (2x2 Grid)
+        grid_files = QGridLayout()
+        grid_files.setContentsMargins(0, 0, 0, 0)
+
+        self.chk_exe = QCheckBox("*.exe (可执行程序)");
+        self.chk_exe.setChecked(True)
+        self.chk_jar = QCheckBox("*.jar (Java 应用)")
+        self.chk_bat = QCheckBox("*.bat / *.cmd (脚本)")
+        self.chk_lnk = QCheckBox("*.lnk (快捷方式)")
+
+        # 布局：第一行
+        grid_files.addWidget(self.chk_exe, 0, 0)
+        grid_files.addWidget(self.chk_jar, 0, 1)
+        # 布局：第二行
+        grid_files.addWidget(self.chk_bat, 1, 0)
+        grid_files.addWidget(self.chk_lnk, 1, 1)
+
+        l_target.addLayout(grid_files)
+
+        # 分隔线
+        line = QFrame();
+        line.setFrameShape(QFrame.Shape.HLine);
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        l_target.addWidget(line)
+
+        # 1.2 扫描策略
+        h_strat = QHBoxLayout()
+        self.chk_smart = QCheckBox("启用智能根目录识别 (Smart Root Detection)")
+        self.btn_smart_help = QPushButton("❓")
+        self.btn_smart_help.setFixedSize(20, 20)
+        self.btn_smart_help.setStyleSheet(
+            "border-radius: 10px; background-color: #E0E0E0; color: #555; border: none; font-size: 12px;")
+        self.btn_smart_help.setCursor(Qt.PointingHandCursor)
+        self.btn_smart_help.clicked.connect(self.show_smart_help)
+
+        h_strat.addWidget(self.chk_smart)
+        h_strat.addWidget(self.btn_smart_help)
+        h_strat.addStretch()
+        l_target.addLayout(h_strat)
+
+        layout.addWidget(g_target)
+
+        # --- 2. 过滤规则 ---
+        g_filter = QGroupBox("过滤规则 (Filtering)")
         l_filter = QVBoxLayout(g_filter);
         l_filter.setSpacing(15)
 
         row_size = QHBoxLayout()
-        self.chk_size = QCheckBox("启用大小过滤");
+        self.chk_size = QCheckBox("启用文件大小过滤");
         self.chk_size.toggled.connect(self.toggle_size_inputs);
         row_size.addWidget(self.chk_size)
         row_size.addWidget(QLabel("  最小:"));
@@ -85,13 +117,13 @@ class RulesPage(QWidget):
         row_size.addStretch();
         l_filter.addLayout(row_size)
 
-        line = QFrame();
-        line.setFrameShape(QFrame.Shape.HLine);
-        line.setFrameShadow(QFrame.Shadow.Sunken);
-        l_filter.addWidget(line)
+        line2 = QFrame();
+        line2.setFrameShape(QFrame.Shape.HLine);
+        line2.setFrameShadow(QFrame.Shadow.Sunken);
+        l_filter.addWidget(line2)
 
         row_blk = QHBoxLayout();
-        self.chk_blk = QCheckBox("启用黑名单");
+        self.chk_blk = QCheckBox("启用文件名黑名单");
         row_blk.addWidget(self.chk_blk)
         btn_blk = QPushButton("📄 编辑黑名单");
         btn_blk.clicked.connect(self.edit_blacklist);
@@ -109,22 +141,19 @@ class RulesPage(QWidget):
         l_filter.addLayout(row_ign)
         layout.addWidget(g_filter)
 
-        # 3. 【Beta 5.3】 高级策略
-        g_adv = QGroupBox("高级策略 (Behavior)")
+        # --- 3. 高级策略 ---
+        g_adv = QGroupBox("高级行为 (Behavior)")
         l_adv = QVBoxLayout(g_adv)
-
-        self.chk_dedup = QCheckBox("智能去重：合并 StartMenu/UWP/Custom 中同名的程序")
+        self.chk_dedup = QCheckBox("智能去重 (合并同名结果)")
         l_adv.addWidget(self.chk_dedup)
-
-        l_adv.addWidget(QLabel("扫描结果默认勾选状态:"))
+        l_adv.addWidget(QLabel("默认勾选:"))
         h_def = QHBoxLayout()
-        self.chk_def_new = QCheckBox("默认勾选 [🆕 新增] 程序")
-        self.chk_def_exi = QCheckBox("默认勾选 [✅ 已存在] 程序")
+        self.chk_def_new = QCheckBox("🆕 新增程序");
+        self.chk_def_exi = QCheckBox("✅ 已存在程序")
         h_def.addWidget(self.chk_def_new);
         h_def.addWidget(self.chk_def_exi);
         h_def.addStretch()
         l_adv.addLayout(h_def)
-
         layout.addWidget(g_adv)
 
         # Save
@@ -138,6 +167,15 @@ class RulesPage(QWidget):
         self.spin_min.setEnabled(checked);
         self.spin_max.setEnabled(checked)
 
+    def show_smart_help(self):
+        msg = (
+            "<h3>智能根目录识别</h3>"
+            "<p><b>适用场景：</b>扫描大型软件库（如 Steam 库、Program Files）。</p>"
+            "<p><b>开启时：</b>程序会将同一个文件夹内的所有文件视为一个“软件组”，并根据算法自动推荐一个最可能是主程序的入口（例如自动选择 <i>idea64.exe</i> 而不是 <i>uninstall.exe</i>）。</p>"
+            "<p><b>关闭时：</b>平铺模式。列出所有符合条件的文件，不进行分组和推荐。适合扫描存放单文件工具的目录。</p>"
+        )
+        QMessageBox.information(self, "规则说明", msg)
+
     def load_ui_states(self):
         rules = self.config['Rules']
         self.chk_blk.setChecked(rules.getboolean('enable_blacklist', True))
@@ -148,10 +186,16 @@ class RulesPage(QWidget):
         self.spin_min.setValue(rules.getint('min_size_kb', 0))
         self.spin_max.setValue(rules.getint('max_size_mb', 500))
 
-        # 【Beta 5.3】
         self.chk_dedup.setChecked(rules.getboolean('enable_deduplication', True))
         self.chk_def_new.setChecked(rules.getboolean('default_check_new', True))
         self.chk_def_exi.setChecked(rules.getboolean('default_check_existing', False))
+
+        exts = rules.get('target_extensions', '.exe')
+        self.chk_exe.setChecked('.exe' in exts)  # 允许取消勾选 exe
+        self.chk_jar.setChecked('.jar' in exts)
+        self.chk_bat.setChecked('.bat' in exts or '.cmd' in exts)
+        self.chk_lnk.setChecked('.lnk' in exts)
+        self.chk_smart.setChecked(rules.getboolean('enable_smart_root', True))
 
     def edit_blacklist(self):
         dlg = ListEditDialog(self, "编辑文件名黑名单", self.blocklist, "每行一个关键词:")
@@ -168,11 +212,22 @@ class RulesPage(QWidget):
         rules['enable_size_filter'] = str(self.chk_size.isChecked())
         rules['min_size_kb'] = str(self.spin_min.value())
         rules['max_size_mb'] = str(self.spin_max.value())
-
-        # 【Beta 5.3】
         rules['enable_deduplication'] = str(self.chk_dedup.isChecked())
         rules['default_check_new'] = str(self.chk_def_new.isChecked())
         rules['default_check_existing'] = str(self.chk_def_exi.isChecked())
+        rules['enable_smart_root'] = str(self.chk_smart.isChecked())
+
+        ext_list = []
+        if self.chk_exe.isChecked(): ext_list.append('.exe')
+        if self.chk_jar.isChecked(): ext_list.append('.jar')
+        if self.chk_bat.isChecked(): ext_list.extend(['.bat', '.cmd'])
+        if self.chk_lnk.isChecked(): ext_list.append('.lnk')
+
+        if not ext_list:
+            QMessageBox.warning(self, "提示", "请至少选择一种目标文件类型！")
+            return
+
+        rules['target_extensions'] = ",".join(ext_list)
 
         backend.save_config(self.config)
-        QMessageBox.information(self, "完成", "配置已保存。")
+        QMessageBox.information(self, "完成", "规则配置已更新，将在下次扫描时生效。")

@@ -10,7 +10,6 @@ CONFIG_FILE = "config.ini"
 FILENAME_BLOCKLIST = "blocklist.txt"
 FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
 
-# 【Beta 5.3】 新增配置项
 DEFAULT_CONFIG = {
     'enable_blacklist': 'true',
     'enable_ignored_dirs': 'true',
@@ -18,9 +17,10 @@ DEFAULT_CONFIG = {
     'min_size_kb': '0',
     'max_size_mb': '500',
     'target_extensions': '.exe',
-    'enable_deduplication': 'true',  # 是否合并重复名称的程序
-    'default_check_new': 'true',  # 新发现程序默认勾选
-    'default_check_existing': 'false'  # 已存在程序默认不勾选
+    'enable_deduplication': 'true',
+    'default_check_new': 'true',
+    'default_check_existing': 'false',
+    'enable_smart_root': 'true'
 }
 
 DEFAULT_BLOCKLIST = {
@@ -96,12 +96,12 @@ def _load_set_from_file(filename, default_set):
             with open(filename, 'r') as f:
                 for line in f:
                     if line.strip(): result_set.add(line.strip())
-            return result_set, f"从 {filename} 加载规则。"
-        except Exception as e:
-            return result_set, f"加载 {filename} 失败: {e}"
+            return result_set, f"加载规则完成"
+        except:
+            return result_set, "加载失败"
     else:
         _save_set_to_file(filename, result_set)
-        return result_set, f"已创建默认规则: {filename}。"
+        return result_set, "创建默认规则"
 
 
 def _save_set_to_file(filename, data_set):
@@ -132,11 +132,8 @@ def load_config():
     if os.path.exists(CONFIG_FILE): config.read(CONFIG_FILE, encoding='utf-8')
     if 'Settings' not in config: config['Settings'] = {}
     if 'Rules' not in config: config['Rules'] = {}
-
-    # 填充缺失的默认值
     for k, v in DEFAULT_CONFIG.items():
         if k not in config['Rules']: config['Rules'][k] = v
-
     return config
 
 
@@ -148,12 +145,10 @@ def save_config(config):
         print(f"Config Error: {e}")
 
 
-# --- 5. 扫描源实现 ---
+# --- 5. 扫描源 ---
 def scan_start_menu(blocklist):
-    paths = [
-        os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
-        os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')
-    ]
+    paths = [os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
+             os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')]
     results = []
     shell = win32com.client.Dispatch("WScript.Shell")
     for p in paths:
@@ -166,8 +161,7 @@ def scan_start_menu(blocklist):
                         sc = shell.CreateShortCut(full_path)
                         target = sc.TargetPath
                         if target.lower().endswith('.exe'):
-                            exe_name = os.path.basename(target).lower()
-                            if exe_name in blocklist: continue
+                            if os.path.basename(target).lower() in blocklist: continue
                             results.append(
                                 {'name': os.path.splitext(f)[0], 'path': target, 'root': root, 'type': 'start_menu'})
                     except:
@@ -191,7 +185,7 @@ def scan_uwp_apps(blocklist):
     return results
 
 
-# --- 6. 综合扫描逻辑 ---
+# --- 6. 核心算法 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
@@ -211,6 +205,10 @@ def smart_rank_executables(program_name, exe_paths, root_path):
             score += 50
         if name_no_ext in ['launcher', 'main', 'start', 'app', 'run']: score += 20
         if '64' in name_no_ext: score += 10
+
+        # 【Beta 5.5】 给 .exe 小幅加分，作为同名文件的决胜局
+        if filename.endswith('.exe'): score += 5
+
         rel_path = os.path.relpath(path, root_path)
         score -= (rel_path.count(os.path.sep) * 15)
         negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
@@ -225,14 +223,12 @@ def smart_rank_executables(program_name, exe_paths, root_path):
 def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
     conf = load_config()
     rules = conf['Rules']
-
-    # 【Beta 5.3】 读取去重配置
     enable_dedup = rules.getboolean('enable_deduplication', True)
-    seen_names = set()  # 用于去重
+    enable_smart_root = rules.getboolean('enable_smart_root', True)
 
+    seen_names = set()
     raw_results = []
 
-    # 1. Start Menu
     if 'start_menu' in sources:
         log_callback("--- 扫描: 系统开始菜单 ---")
         items = scan_start_menu(blocklist)
@@ -242,7 +238,6 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
                  'type': 'start_menu'})
 
-    # 2. UWP
     if 'uwp' in sources:
         log_callback("--- 扫描: Microsoft Store ---")
         items = scan_uwp_apps(blocklist)
@@ -252,7 +247,6 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
                  'type': 'uwp'})
 
-    # 3. Custom
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
         log_callback(f"--- 扫描: 自定义文件夹 {custom_path} ---")
         use_size = rules.getboolean('enable_size_filter', False)
@@ -262,6 +256,8 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
 
         exe_folders = defaultdict(list);
         all_exes_data = {}
+        flat_files = []
+
         for root, dirs, files in os.walk(custom_path, topdown=True):
             if check_stop_callback and check_stop_callback(): return []
             ignored_lower = {d.lower() for d in ignored_dirs}
@@ -278,60 +274,71 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                     full_path = os.path.join(root, file)
                     size = os.path.getsize(full_path)
                     if use_size and (size < min_kb or size > max_mb): continue
+
                     current_exes.append(full_path)
                     all_exes_data[full_path] = (full_path, file, size, os.path.relpath(root, custom_path))
+
+                    if not enable_smart_root: flat_files.append(full_path)
                 except:
                     pass
-            if current_exes: exe_folders[root] = current_exes
 
-        sorted_folders = sorted(exe_folders.keys())
-        top_level_folders = []
-        if sorted_folders:
-            last = sorted_folders[0];
-            top_level_folders.append(last)
-            for curr in sorted_folders[1:]:
-                if not curr.startswith(last + os.path.sep): top_level_folders.append(curr); last = curr
+            if enable_smart_root and current_exes: exe_folders[root] = current_exes
 
-        program_groups = defaultdict(list);
-        program_roots = {}
-        for folder in top_level_folders:
-            name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
-                folder).lower() == 'bin' else os.path.basename(folder)
-            root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
-            is_sub = False
-            for ex_root in list(program_roots.keys()):
-                if root.startswith(ex_root + os.path.sep): is_sub = True; break
-                if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
-            if not is_sub: program_roots[root] = name
+        if enable_smart_root:
+            sorted_folders = sorted(exe_folders.keys())
+            top_level_folders = []
+            if sorted_folders:
+                last = sorted_folders[0];
+                top_level_folders.append(last)
+                for curr in sorted_folders[1:]:
+                    if not curr.startswith(last + os.path.sep): top_level_folders.append(curr); last = curr
 
-        for full_path in all_exes_data.keys():
-            match_root = None
-            for root in program_roots.keys():
-                if full_path.startswith(root + os.path.sep):
-                    if match_root is None or len(root) > len(match_root): match_root = root
-            if match_root: program_groups[match_root].append(full_path)
+            program_groups = defaultdict(list);
+            program_roots = {}
+            for folder in top_level_folders:
+                name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
+                    folder).lower() == 'bin' else os.path.basename(folder)
+                root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
+                is_sub = False
+                for ex_root in list(program_roots.keys()):
+                    if root.startswith(ex_root + os.path.sep): is_sub = True; break
+                    if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
+                if not is_sub: program_roots[root] = name
 
-        for root, exe_paths in program_groups.items():
-            name = program_roots[root]
-            ranked_exes = smart_rank_executables(name, exe_paths, root)
-            selected = tuple([ranked_exes[0]]) if ranked_exes else ()
-            raw_results.append({'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
-                                'selected_exes': selected, 'type': 'custom'})
+            for full_path in all_exes_data.keys():
+                match_root = None
+                for root in program_roots.keys():
+                    if full_path.startswith(root + os.path.sep):
+                        if match_root is None or len(root) > len(match_root): match_root = root
+                if match_root: program_groups[match_root].append(full_path)
 
-    # 【Beta 5.3】 执行去重
+            for root, exe_paths in program_groups.items():
+                name = program_roots[root]
+                ranked_exes = smart_rank_executables(name, exe_paths, root)
+                selected = tuple([ranked_exes[0]]) if ranked_exes else ()
+                raw_results.append(
+                    {'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
+                     'selected_exes': selected, 'type': 'custom'})
+        else:
+            for path in flat_files:
+                name = os.path.splitext(os.path.basename(path))[0]
+                raw_results.append({
+                    'name': name,
+                    'root_path': os.path.dirname(path),
+                    'all_exes': [],
+                    'selected_exes': (path,),
+                    'type': 'custom'
+                })
+
     final_results = []
     if enable_dedup:
-        log_callback("正在智能去重...")
         for item in raw_results:
-            # 使用小写名称进行比较
             name_key = item['name'].lower()
-            if name_key in seen_names:
-                # log_callback(f"  [去重] 跳过重复程序: {item['name']}")
-                continue
+            if name_key in seen_names: continue
             seen_names.add(name_key)
             final_results.append(item)
     else:
         final_results = raw_results
 
-    log_callback(f"处理完成，有效结果 {len(final_results)} 个。")
+    log_callback(f"扫描完成，共汇总 {len(final_results)} 个结果。")
     return sorted(final_results, key=lambda p: p['name'])

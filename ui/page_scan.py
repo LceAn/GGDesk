@@ -9,7 +9,6 @@ import os
 import scanner_backend as backend
 
 
-# --- 线程类 (保持不变) ---
 class ScanWorker(QObject):
     finished = Signal(list);
     log = Signal(str)
@@ -37,7 +36,6 @@ class ScanWorker(QObject):
             self.finished.emit([])
 
 
-# --- 详情弹窗 (保持不变) ---
 class RefineWindow(QDialog):
     def __init__(self, parent, program_data):
         super().__init__(parent)
@@ -164,7 +162,6 @@ class RefineWindow(QDialog):
         self.accept()
 
 
-# --- 成功弹窗 (保持不变) ---
 class GenSuccessDialog(QDialog):
     def __init__(self, parent, count, output_path):
         super().__init__(parent)
@@ -215,7 +212,6 @@ class GenSuccessDialog(QDialog):
     def on_open(self): backend.open_file_explorer(self.output_path); self.accept()
 
 
-# --- 扫描页面类 (Beta 5.3) ---
 class ScanPage(QWidget):
     sig_log = Signal(str);
     sig_status = Signal(str)
@@ -322,7 +318,7 @@ class ScanPage(QWidget):
         last = self.config.get('Settings', 'last_scan_path', fallback='')
         if last: self.path_edit.setText(last)
 
-    # 【Beta 5.3 修复】 确保能正确读取和显示所有规则
+    # 【Beta 5.4】 增加智能识别状态显示
     def update_rules_summary(self):
         conf = backend.load_config();
         rules = conf['Rules']
@@ -331,9 +327,13 @@ class ScanPage(QWidget):
         if rules.getboolean('enable_ignored_dirs', True): summary.append("黑洞跳过✅")
         if rules.getboolean('enable_size_filter', False):
             summary.append(f"大小({rules.get('min_size_kb')}K-{rules.get('max_size_mb')}M)")
+
         exts = rules.get('target_extensions', '.exe')
-        if exts != '.exe': summary.append(f"类型({exts})")
-        if rules.getboolean('enable_deduplication', True): summary.append("智能去重✅")
+        # 显示智能识别状态
+        smart_on = rules.getboolean('enable_smart_root', True)
+        mode_text = "智能识别" if smart_on else "平铺模式"
+
+        summary.append(f"类型({exts}) [{mode_text}]")
 
         self.lbl_rules_summary.setText("当前规则: " + " | ".join(summary) if summary else "当前规则: 无限制")
 
@@ -441,7 +441,7 @@ class ScanPage(QWidget):
         out_path = conf.get('Settings', 'output_path', fallback='').strip()
         if not out_path: out_path = os.path.join(os.path.expanduser('~'), 'Desktop', backend.DEFAULT_OUTPUT_FOLDER_NAME)
 
-        # 【Beta 5.3】 读取默认勾选策略
+        # 读取策略
         rules = conf['Rules']
         check_new = rules.getboolean('default_check_new', True)
         check_exist = rules.getboolean('default_check_existing', False)
