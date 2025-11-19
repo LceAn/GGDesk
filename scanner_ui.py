@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QFileDialog, QLineEdit, QLabel, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QDialog, QDialogButtonBox,
     QMessageBox, QTextEdit, QStackedWidget, QButtonGroup, QComboBox,
-    QFileIconProvider, QStyle, QStatusBar, QProgressBar, QSplitter
+    QFileIconProvider, QStyle, QStatusBar, QProgressBar, QSplitter,
+    QCheckBox
 )
 from PySide6.QtCore import Qt, QSize, QObject, Signal, Slot, QThread, QFileInfo
-from PySide6.QtGui import QCloseEvent, QIcon
+from PySide6.QtGui import QCloseEvent, QIcon, QFont
 
+# 导入模块
 import scanner_backend as backend
 import scanner_styles as styles
 
@@ -43,7 +45,7 @@ class ScanWorker(QObject):
             self.finished.emit([])
 
 
-# --- 详情弹窗 (保持不变) ---
+# --- 详情弹窗 (Stage 2) (保持不变) ---
 class RefineWindow(QDialog):
     def __init__(self, parent, program_data):
         super().__init__(parent)
@@ -127,7 +129,7 @@ class RefineWindow(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("快捷方式扫描器 (Beta 4.1)")
+        self.setWindowTitle("快捷方式扫描器 (Beta 4.2)")
         self.config = backend.load_config()
         self.programs = []
         self.blocklist, msg1 = backend.load_blocklist();
@@ -135,9 +137,11 @@ class MainWindow(QMainWindow):
         self.scan_thread = None;
         self.scan_worker = None;
         self.icon_provider = QFileIconProvider()
-        self.build_ui();
-        self.setup_statusbar();
+
+        self.build_ui()
+        self.setup_statusbar()
         self.load_settings()
+        self.update_path_hint()  # 初始化路径提示
         self.log_to_settings(f"系统初始化...\n{msg1}\n{msg2}")
 
     def setup_statusbar(self):
@@ -158,7 +162,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0);
         root_layout.setSpacing(0)
 
-        # Sidebar
+        # 1. Sidebar
         sidebar = QWidget();
         sidebar.setObjectName("sidebar");
         sidebar.setFixedWidth(220)
@@ -184,13 +188,22 @@ class MainWindow(QMainWindow):
         self.nav_filter = add_nav("  过滤规则", QStyle.StandardPixmap.SP_MessageBoxWarning, 1)
         self.nav_set = add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 2)
         sb_layout.addStretch()
-        ver_lbl = QLabel("Beta 4.1");
+
+        # 【Beta 4.2】 归属信息优化
+        ver_layout = QVBoxLayout()
+        ver_lbl = QLabel("Beta 4.2");
         ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ver_lbl.setStyleSheet("color: #888888; font-size: 9pt;");
-        sb_layout.addWidget(ver_lbl)
+        ver_lbl.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
+        auth_lbl = QLabel("By LceAn");
+        auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        auth_lbl.setStyleSheet("color: #666666; font-size: 8pt; margin-top: -5px;")  # 微调间距
+        ver_layout.addWidget(ver_lbl);
+        ver_layout.addWidget(auth_lbl)
+        sb_layout.addLayout(ver_layout)
+
         root_layout.addWidget(sidebar)
 
-        # Content
+        # 2. Content
         self.stack = QStackedWidget();
         self.stack.setObjectName("mainArea")
         self.stack.addWidget(self.view_scanner())
@@ -204,7 +217,9 @@ class MainWindow(QMainWindow):
         page = QWidget();
         layout = QVBoxLayout(page);
         layout.setContentsMargins(30, 30, 30, 30);
-        layout.setSpacing(20)
+        layout.setSpacing(15)
+
+        # 顶部路径
         top_box = QHBoxLayout()
         self.path_edit = QLineEdit();
         self.path_edit.setReadOnly(True);
@@ -222,30 +237,52 @@ class MainWindow(QMainWindow):
         self.btn_action.clicked.connect(self.toggle_scan)
         layout.addWidget(self.btn_action)
 
-        info_box = QHBoxLayout()
-        info_box.addWidget(QLabel("📝 发现结果 (勾选以生成，双击以修改)"))
-        info_box.addStretch();
-        self.lbl_count = QLabel("0 个程序");
-        info_box.addWidget(self.lbl_count)
-        layout.addLayout(info_box)
+        layout.addSpacing(10)
 
+        # 【Beta 4.2】 列表头优化：复选框 + 计数
+        header_frame = QFrame();
+        header_frame.setStyleSheet("background-color: transparent;")
+        hf_layout = QHBoxLayout(header_frame);
+        hf_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.chk_select_all = QCheckBox("全选列表")
+        self.chk_select_all.stateChanged.connect(self.toggle_select_all)  # 绑定全选事件
+
+        self.lbl_count = QLabel("已选 0 / 共 0 个")
+        self.lbl_count.setStyleSheet("font-weight: bold; color: #0078D7;")
+
+        hf_layout.addWidget(self.chk_select_all)
+        hf_layout.addStretch()
+        hf_layout.addWidget(self.lbl_count)
+        layout.addWidget(header_frame)
+
+        # 列表
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名称', '推荐执行文件', '所在目录'])
-        self.tree.setAlternatingRowColors(True)
-        self.tree.itemDoubleClicked.connect(self.open_refine)
-        # 【Beta 4.1】 启用图标尺寸优化和工具提示
+        self.tree.setAlternatingRowColors(True);
         self.tree.setIconSize(QSize(24, 24))
+        self.tree.itemDoubleClicked.connect(self.open_refine)
+        self.tree.itemChanged.connect(self.on_tree_item_changed)  # 绑定单项改变事件
         layout.addWidget(self.tree)
 
-        gen_box = QHBoxLayout();
-        gen_box.addStretch()
+        # 【Beta 4.2】 底部生成区优化：路径提示
+        footer_layout = QVBoxLayout();
+        footer_layout.setSpacing(5)
+
+        self.lbl_path_hint = QLabel("")
+        self.lbl_path_hint.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.lbl_path_hint.setStyleSheet("color: #999999; font-size: 9pt;")  # 淡雅显示
+
         self.btn_gen = QPushButton("✨ 生成选中快捷方式");
         self.btn_gen.setObjectName("primaryButton")
         self.btn_gen.setMinimumHeight(40);
         self.btn_gen.setEnabled(False);
         self.btn_gen.clicked.connect(self.generate)
-        gen_box.addWidget(self.btn_gen);
-        layout.addLayout(gen_box)
+
+        footer_layout.addWidget(self.lbl_path_hint)
+        footer_layout.addWidget(self.btn_gen)
+        layout.addLayout(footer_layout)
+
         return page
 
     def view_filters(self):
@@ -258,8 +295,7 @@ class MainWindow(QMainWindow):
         w1 = QWidget();
         l1 = QVBoxLayout(w1);
         l1.setContentsMargins(0, 0, 10, 0)
-        l1.addWidget(QLabel("文件黑名单 (.exe)"));
-        l1.addWidget(QLabel("跳过包含这些关键词的文件"))
+        l1.addWidget(QLabel("文件黑名单 (.exe)"))
         self.blk_edit = QTextEdit();
         self.blk_edit.setPlainText("\n".join(sorted(self.blocklist)));
         l1.addWidget(self.blk_edit)
@@ -267,8 +303,7 @@ class MainWindow(QMainWindow):
         w2 = QWidget();
         l2 = QVBoxLayout(w2);
         l2.setContentsMargins(10, 0, 0, 0)
-        l2.addWidget(QLabel("黑洞目录 (Dir)"));
-        l2.addWidget(QLabel("完全跳过这些目录 (及其子目录)"))
+        l2.addWidget(QLabel("黑洞目录 (Dir)"))
         self.ign_edit = QTextEdit();
         self.ign_edit.setPlainText("\n".join(sorted(self.ignored_dirs)));
         l2.addWidget(self.ign_edit)
@@ -299,6 +334,8 @@ class MainWindow(QMainWindow):
         hb = QHBoxLayout();
         self.out_edit = QLineEdit();
         self.out_edit.setPlaceholderText("默认桌面")
+        # 【Beta 4.2】 绑定编辑框变化，实时更新首页提示
+        self.out_edit.textChanged.connect(self.update_path_hint)
         btn_out = QPushButton("浏览...");
         btn_out.clicked.connect(self.browse_out_path)
         hb.addWidget(self.out_edit);
@@ -313,6 +350,41 @@ class MainWindow(QMainWindow):
         return page
 
     # --- Logic ---
+
+    # 【Beta 4.2】 路径提示更新逻辑
+    def update_path_hint(self):
+        path = self.out_edit.text()
+        if not path:
+            path = os.path.join(os.path.expanduser('~'), 'Desktop', backend.DEFAULT_OUTPUT_FOLDER_NAME)
+        self.lbl_path_hint.setText(f"将生成至: {path}")
+
+    # 【Beta 4.2】 全选/反选逻辑
+    def toggle_select_all(self, state):
+        is_checked = (state == Qt.CheckState.Checked.value)  # 修正: PySide6枚举值比较
+        # 临时断开 itemChanged 信号，防止批量更新时触发大量计算
+        self.tree.blockSignals(True)
+        root = self.tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            item.setCheckState(0, Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked)
+        self.tree.blockSignals(False)
+        self.update_selection_count()  # 手动更新一次计数
+
+    # 【Beta 4.2】 单项改变与计数更新
+    def on_tree_item_changed(self, item, column):
+        if column == 0:  # 只有复选框列变化才更新
+            self.update_selection_count()
+
+    def update_selection_count(self):
+        total = self.tree.topLevelItemCount()
+        checked = 0
+        root = self.tree.invisibleRootItem()
+        for i in range(total):
+            if root.child(i).checkState(0) == Qt.CheckState.Checked:
+                checked += 1
+        self.lbl_count.setText(f"已选 {checked} / 共 {total} 个")
+        # 自动更新全选框状态 (可选优化，这里保持简单)
+
     def browse_scan_path(self):
         d = QFileDialog.getExistingDirectory(self, "选择目录", self.path_edit.text())
         if d: self.path_edit.setText(d); self.btn_action.setEnabled(True)
@@ -335,6 +407,11 @@ class MainWindow(QMainWindow):
         self.tree.clear();
         self.progress.setVisible(True)
         self.status_label.setText(f"正在扫描: {path} ...")
+
+        # 重置计数
+        self.chk_select_all.setChecked(True)  # 默认全选
+        self.lbl_count.setText("扫描中...")
+
         self.scan_thread = QThread(self);
         self.scan_worker = ScanWorker(path, self.blocklist, self.ignored_dirs)
         self.scan_worker.moveToThread(self.scan_thread)
@@ -355,13 +432,13 @@ class MainWindow(QMainWindow):
         self.programs = res;
         self.populate_tree();
         self.progress.setVisible(False)
-        self.status_label.setText(f"就绪 - 共发现 {len(res)} 个程序");
-        self.lbl_count.setText(f"{len(res)} 个程序")
+        self.status_label.setText(f"就绪 - 共发现 {len(res)} 个程序")
         self.btn_action.setText("🚀 开始扫描");
         self.btn_action.setObjectName("primaryButton");
         self.btn_action.setStyle(self.style())
         self.btn_action.setEnabled(True);
         self.btn_gen.setEnabled(len(res) > 0)
+        self.update_selection_count()  # 扫描完更新计数
 
     @Slot()
     def cleanup_thread(self):
@@ -372,25 +449,20 @@ class MainWindow(QMainWindow):
 
     def populate_tree(self):
         self.tree.clear()
+        self.tree.blockSignals(True)  # 填充时屏蔽信号，提高性能
         items = []
         for i, p in enumerate(self.programs):
             target = p['selected_exes'][0] if p['selected_exes'] else ""
             name_disp = os.path.basename(target) if target else "未选择"
-
             item = QTreeWidgetItem([p['name'], name_disp, p['root_path']])
-
-            # 【Beta 4.1】 功能：复选框 + 图标移位 + 工具提示
-            item.setCheckState(0, Qt.CheckState.Checked)  # 默认勾选
-            item.setToolTip(2, p['root_path'])  # 路径提示
-
-            if target:
-                item.setIcon(1, self.icon_provider.icon(QFileInfo(target)))  # 图标在第2列
-                item.setToolTip(1, target)
-
+            item.setCheckState(0, Qt.CheckState.Checked)
+            item.setToolTip(2, p['root_path'])
+            if target: item.setIcon(1, self.icon_provider.icon(QFileInfo(target))); item.setToolTip(1, target)
             item.setData(0, Qt.ItemDataRole.UserRole, i)
             items.append(item)
         self.tree.addTopLevelItems(items)
         self.tree.header().resizeSections(QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.blockSignals(False)
 
     def open_refine(self, item):
         idx = item.data(0, Qt.ItemDataRole.UserRole);
@@ -405,18 +477,15 @@ class MainWindow(QMainWindow):
                                                    backend.DEFAULT_OUTPUT_FOLDER_NAME)
         if not os.path.exists(out): os.makedirs(out)
         cnt = 0
-
-        # 【Beta 4.1】 只生成勾选的项目
         root = self.tree.invisibleRootItem()
         for i in range(root.childCount()):
             item = root.child(i)
             if item.checkState(0) == Qt.CheckState.Checked:
-                idx = item.data(0, Qt.ItemDataRole.UserRole)
+                idx = item.data(0, Qt.ItemDataRole.UserRole);
                 p = self.programs[idx]
                 for exe in p['selected_exes']:
                     name = os.path.splitext(os.path.basename(exe))[0]
                     if backend.create_shortcut(exe, os.path.join(out, f"{name}.lnk"))[0]: cnt += 1
-
         QMessageBox.information(self, "完成", f"成功创建 {cnt} 个快捷方式！\n目录: {out}")
 
     def log_to_settings(self, m):
