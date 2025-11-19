@@ -1,0 +1,16 @@
+$RECYCLE.BIN
+.git
+.idea
+.svn
+.vscode
+ProgramData
+System Volume Information
+Windows
+__pycache__
+build
+dist
+env
+node_modules
+temp
+tmp
+venv

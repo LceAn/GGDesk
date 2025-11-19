@@ -7,85 +7,14 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QFileDialog, QLineEdit, QLabel, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QDialog, QDialogButtonBox,
     QMessageBox, QTextEdit, QStackedWidget, QButtonGroup, QComboBox,
-    QFileIconProvider, QStyle, QStatusBar, QProgressBar
+    QFileIconProvider, QStyle, QStatusBar, QProgressBar, QSplitter
 )
 from PySide6.QtCore import Qt, QSize, QObject, Signal, Slot, QThread, QFileInfo
-from PySide6.QtGui import QCloseEvent, QIcon, QFont
+from PySide6.QtGui import QCloseEvent, QIcon
 
+# 导入模块
 import scanner_backend as backend
-
-# --- Beta 3.1 Stylesheet ---
-
-COMMON_QSS = """
-/* 全局字体与基础 */
-QWidget { font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 10pt; }
-
-/* 红色停止按钮 */
-QPushButton[objectName="stopButton"] {
-    background-color: #E81123; color: white; border: none; font-weight: bold;
-    border-radius: 6px; padding: 8px 16px;
-}
-QPushButton[objectName="stopButton"]:hover { background-color: #F03A4A; }
-QPushButton[objectName="stopButton"]:pressed { background-color: #C00E1C; }
-
-/* 主按钮 (蓝色) */
-QPushButton[objectName="primaryButton"] {
-    background-color: #0067C0; color: white; border: none; font-weight: bold;
-    border-radius: 6px; padding: 8px 16px;
-}
-QPushButton[objectName="primaryButton"]:hover { background-color: #197CCC; }
-QPushButton[objectName="primaryButton"]:pressed { background-color: #005299; }
-QPushButton[objectName="primaryButton"]:disabled { background-color: #CCCCCC; color: #666666; }
-
-/* 通用圆角输入框 */
-QLineEdit, QTextEdit, QComboBox {
-    border-radius: 6px; padding: 6px; border: 1px solid #CCCCCC;
-}
-"""
-
-LIGHT_QSS = COMMON_QSS + """
-QMainWindow { background-color: #F3F3F3; }
-QWidget[objectName="sidebar"] { background-color: #FFFFFF; border-right: 1px solid #E5E5E5; }
-QWidget[objectName="mainArea"] { background-color: #FFFFFF; border-radius: 8px; margin: 10px; }
-
-QPushButton[objectName="navButton"] {
-    background-color: transparent; color: #333333; border: none;
-    padding: 12px 15px; text-align: left; border-radius: 6px; margin: 4px 8px; font-size: 11pt;
-}
-QPushButton[objectName="navButton"]:hover { background-color: #F0F0F0; }
-QPushButton[objectName="navButton"]:checked { background-color: #E0E0E0; color: #000000; font-weight: 600; }
-
-QPushButton { background-color: #FFFFFF; border: 1px solid #D0D0D0; border-radius: 6px; padding: 6px 12px; color: #333333; }
-QPushButton:hover { background-color: #F9F9F9; border-color: #B0B0B0; }
-
-QTreeWidget { border: 1px solid #E5E5E5; border-radius: 6px; alternate-background-color: #FAFAFA; }
-QTreeWidget::item { height: 28px; }
-QTreeWidget::item:selected { background-color: #E0EEF9; color: #000000; }
-QHeaderView::section { background-color: #FFFFFF; border: none; border-bottom: 1px solid #E5E5E5; padding: 8px; font-weight: bold; color: #555555; }
-"""
-
-DARK_QSS = COMMON_QSS + """
-QMainWindow { background-color: #202020; }
-QWidget[objectName="sidebar"] { background-color: #2D2D2D; border-right: 1px solid #383838; }
-QWidget[objectName="mainArea"] { background-color: #2D2D2D; border-radius: 8px; margin: 10px; }
-
-QPushButton[objectName="navButton"] {
-    background-color: transparent; color: #CCCCCC; border: none;
-    padding: 12px 15px; text-align: left; border-radius: 6px; margin: 4px 8px; font-size: 11pt;
-}
-QPushButton[objectName="navButton"]:hover { background-color: #383838; }
-QPushButton[objectName="navButton"]:checked { background-color: #404040; color: #FFFFFF; font-weight: 600; }
-
-QPushButton { background-color: #383838; border: 1px solid #484848; border-radius: 6px; padding: 6px 12px; color: #F0F0F0; }
-QPushButton:hover { background-color: #404040; }
-
-QLineEdit, QTextEdit, QComboBox { background-color: #383838; border: 1px solid #484848; color: #F0F0F0; }
-
-QTreeWidget { background-color: #1E1E1E; border: 1px solid #383838; border-radius: 6px; alternate-background-color: #252525; color: #F0F0F0; }
-QTreeWidget::item { height: 28px; }
-QTreeWidget::item:selected { background-color: #005FB8; color: #FFFFFF; }
-QHeaderView::section { background-color: #2D2D2D; border: none; border-bottom: 1px solid #383838; padding: 8px; font-weight: bold; color: #CCCCCC; }
-"""
+import scanner_styles as styles
 
 
 # --- 工作线程 ---
@@ -93,10 +22,12 @@ class ScanWorker(QObject):
     finished = Signal(list)
     log = Signal(str)
 
-    def __init__(self, scan_path, blocklist):
+    # 【Beta 4.0】新增 ignored_dirs 参数
+    def __init__(self, scan_path, blocklist, ignored_dirs):
         super().__init__()
-        self.scan_path = scan_path;
-        self.blocklist = blocklist;
+        self.scan_path = scan_path
+        self.blocklist = blocklist
+        self.ignored_dirs = ignored_dirs
         self.is_running = True
 
     @Slot()
@@ -107,7 +38,11 @@ class ScanWorker(QObject):
     def run(self):
         try:
             programs = backend.discover_programs(
-                self.scan_path, self.blocklist, self.log.emit, lambda: not self.is_running
+                self.scan_path,
+                self.blocklist,
+                self.ignored_dirs,  # 传递给后端
+                self.log.emit,
+                lambda: not self.is_running
             )
             self.finished.emit(programs)
         except Exception as e:
@@ -115,7 +50,7 @@ class ScanWorker(QObject):
             self.finished.emit([])
 
 
-# --- 详情弹窗 ---
+# --- 详情弹窗 (Stage 2) ---
 class RefineWindow(QDialog):
     def __init__(self, parent, program_data):
         super().__init__(parent)
@@ -133,7 +68,6 @@ class RefineWindow(QDialog):
     def build_ui(self):
         layout = QVBoxLayout(self);
         layout.setSpacing(10)
-
         fl = QHBoxLayout()
         fl.addWidget(QLabel("🔍 搜索:"))
         self.filter_edit = QLineEdit()
@@ -141,14 +75,12 @@ class RefineWindow(QDialog):
         self.filter_edit.textChanged.connect(self.on_filter_changed)
         fl.addWidget(self.filter_edit)
         layout.addLayout(fl)
-
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名', '大小', '完整路径'])
         self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self.tree.setSortingEnabled(True)
         self.tree.setAlternatingRowColors(True)
         layout.addWidget(self.tree)
-
         bl = QHBoxLayout()
         btn_all = QPushButton("全选可见");
         btn_all.clicked.connect(self.select_all_visible)
@@ -202,10 +134,12 @@ class RefineWindow(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("快捷方式扫描器 (Beta 3.2)")
+        self.setWindowTitle("快捷方式扫描器 (Beta 4.0 Modular)")
         self.config = backend.load_config()
         self.programs = []
-        self.blocklist, msg = backend.load_blocklist()
+        # 加载数据
+        self.blocklist, msg1 = backend.load_blocklist()
+        self.ignored_dirs, msg2 = backend.load_ignored_dirs()
 
         self.scan_thread = None;
         self.scan_worker = None
@@ -214,7 +148,7 @@ class MainWindow(QMainWindow):
         self.build_ui()
         self.setup_statusbar()
         self.load_settings()
-        self.log_to_settings(f"系统初始化: {msg}")
+        self.log_to_settings(f"系统初始化...\n{msg1}\n{msg2}")
 
     def setup_statusbar(self):
         self.status_bar = QStatusBar()
@@ -234,7 +168,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0);
         root_layout.setSpacing(0)
 
-        # Sidebar
+        # 1. Sidebar
         sidebar = QWidget();
         sidebar.setObjectName("sidebar");
         sidebar.setFixedWidth(220)
@@ -258,20 +192,23 @@ class MainWindow(QMainWindow):
         sb_layout.addWidget(QLabel(" 导航菜单"));
         sb_layout.addSpacing(5)
         self.nav_scan = add_nav("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 0)
-        self.nav_set = add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 1)
+        # 【Beta 4.0】新增过滤规则菜单
+        self.nav_filter = add_nav("  过滤规则", QStyle.StandardPixmap.SP_MessageBoxWarning, 1)
+        self.nav_set = add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 2)
         sb_layout.addStretch()
 
-        ver_lbl = QLabel("Beta 3.2");
+        ver_lbl = QLabel("Beta 4.0");
         ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver_lbl.setStyleSheet("color: #888888; font-size: 9pt;")
         sb_layout.addWidget(ver_lbl)
         root_layout.addWidget(sidebar)
 
-        # Content
+        # 2. Content Stack
         self.stack = QStackedWidget();
         self.stack.setObjectName("mainArea")
-        self.stack.addWidget(self.view_scanner())
-        self.stack.addWidget(self.view_settings())
+        self.stack.addWidget(self.view_scanner())  # Index 0
+        self.stack.addWidget(self.view_filters())  # Index 1 (New)
+        self.stack.addWidget(self.view_settings())  # Index 2
         root_layout.addWidget(self.stack)
 
         self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
@@ -322,6 +259,47 @@ class MainWindow(QMainWindow):
         self.btn_gen.clicked.connect(self.generate)
         gen_box.addWidget(self.btn_gen)
         layout.addLayout(gen_box)
+        return page
+
+    # 【Beta 4.0】 新增过滤规则页面
+    def view_filters(self):
+        page = QWidget();
+        layout = QVBoxLayout(page);
+        layout.setContentsMargins(30, 30, 30, 30);
+        layout.setSpacing(20)
+
+        layout.addWidget(QLabel("🛡️ 过滤规则管理 (编辑后请保存)"), 0, Qt.AlignmentFlag.AlignBottom)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # 左侧：文件黑名单
+        w1 = QWidget();
+        l1 = QVBoxLayout(w1);
+        l1.setContentsMargins(0, 0, 10, 0)
+        l1.addWidget(QLabel("文件黑名单 (.exe)"))
+        l1.addWidget(QLabel("跳过包含这些关键词的文件"))
+        self.blk_edit = QTextEdit();
+        self.blk_edit.setPlainText("\n".join(sorted(self.blocklist)))
+        l1.addWidget(self.blk_edit)
+        splitter.addWidget(w1)
+
+        # 右侧：目录黑洞
+        w2 = QWidget();
+        l2 = QVBoxLayout(w2);
+        l2.setContentsMargins(10, 0, 0, 0)
+        l2.addWidget(QLabel("黑洞目录 (Dir)"))
+        l2.addWidget(QLabel("完全跳过这些目录 (及其子目录)"))
+        self.ign_edit = QTextEdit();
+        self.ign_edit.setPlainText("\n".join(sorted(self.ignored_dirs)))
+        l2.addWidget(self.ign_edit)
+        splitter.addWidget(w2)
+
+        layout.addWidget(splitter, 1)
+
+        btn_save = QPushButton("💾 保存所有规则");
+        btn_save.setObjectName("primaryButton")
+        btn_save.clicked.connect(self.save_rules)
+        layout.addWidget(btn_save, 0, Qt.AlignmentFlag.AlignRight)
 
         return page
 
@@ -334,13 +312,10 @@ class MainWindow(QMainWindow):
         g1 = QFrame();
         l1 = QVBoxLayout(g1)
         l1.addWidget(QLabel("🎨 界面风格"))
-
-        # 【修复点】 变量名统一为 theme_combo
         self.theme_combo = QComboBox();
         self.theme_combo.addItems(["暗黑模式 (Dark)", "明亮模式 (Light)"])
         self.theme_combo.currentIndexChanged.connect(self.apply_theme)
         l1.addWidget(self.theme_combo)
-
         layout.addWidget(g1)
 
         g2 = QFrame();
@@ -356,33 +331,19 @@ class MainWindow(QMainWindow):
         l2.addLayout(hb)
         layout.addWidget(g2)
 
-        g3 = QFrame();
-        l3 = QVBoxLayout(g3)
-        l3.addWidget(QLabel("🛡️ 黑名单管理"))
-        self.blk_edit = QTextEdit();
-        self.blk_edit.setPlainText("\n".join(sorted(self.blocklist)))
-        self.blk_edit.setMaximumHeight(100)
-        l3.addWidget(self.blk_edit)
-        btn_save = QPushButton("保存规则");
-        btn_save.clicked.connect(self.save_blk)
-        l3.addWidget(btn_save, 0, Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(g3)
-
+        # 日志
         layout.addWidget(QLabel("📜 运行日志"))
         self.log_view = QTextEdit();
         self.log_view.setReadOnly(True);
         self.log_view.setObjectName("logArea")
         layout.addWidget(self.log_view)
-
         return page
 
     # --- Logic ---
 
     def browse_scan_path(self):
         d = QFileDialog.getExistingDirectory(self, "选择目录", self.path_edit.text())
-        if d:
-            self.path_edit.setText(d)
-            self.btn_action.setEnabled(True)
+        if d: self.path_edit.setText(d); self.btn_action.setEnabled(True)
 
     def browse_out_path(self):
         d = QFileDialog.getExistingDirectory(self, "选择目录", self.out_edit.text())
@@ -405,7 +366,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"正在扫描: {path} ...")
 
         self.scan_thread = QThread(self)
-        self.scan_worker = ScanWorker(path, self.blocklist)
+        # 【Beta 4.0】传递 ignored_dirs
+        self.scan_worker = ScanWorker(path, self.blocklist, self.ignored_dirs)
         self.scan_worker.moveToThread(self.scan_thread)
 
         self.scan_worker.log.connect(self.on_log)
@@ -428,10 +390,9 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.status_label.setText(f"就绪 - 共发现 {len(res)} 个程序")
         self.lbl_count.setText(f"{len(res)} 个程序")
-
         self.btn_action.setText("🚀 开始扫描");
         self.btn_action.setObjectName("primaryButton")
-        self.btn_action.setStyle(self.style())
+        self.btn_action.setStyle(self.style());
         self.btn_action.setEnabled(True)
         self.btn_gen.setEnabled(len(res) > 0)
 
@@ -467,7 +428,6 @@ class MainWindow(QMainWindow):
         out = self.out_edit.text() or os.path.join(os.path.expanduser('~'), 'Desktop',
                                                    backend.DEFAULT_OUTPUT_FOLDER_NAME)
         if not os.path.exists(out): os.makedirs(out)
-
         cnt = 0
         for p in self.programs:
             for exe in p['selected_exes']:
@@ -480,22 +440,30 @@ class MainWindow(QMainWindow):
 
     def apply_theme(self, idx):
         self.config['Settings']['theme'] = 'light' if idx == 1 else 'dark'
-        QApplication.instance().setStyleSheet(LIGHT_QSS if idx == 1 else DARK_QSS)
+        QApplication.instance().setStyleSheet(styles.LIGHT_QSS if idx == 1 else styles.DARK_QSS)
 
-    def save_blk(self):
-        s = {l.strip().lower() for l in self.blk_edit.toPlainText().split('\n') if l.strip()}
-        backend.save_blocklist(s);
-        self.blocklist = s;
-        QMessageBox.information(self, "", "保存成功")
+    # 【Beta 4.0】统一保存规则
+    def save_rules(self):
+        # 黑名单
+        blk = {l.strip().lower() for l in self.blk_edit.toPlainText().split('\n') if l.strip()}
+        ok1, msg1 = backend.save_blocklist(blk)
+        self.blocklist = blk
+
+        # 黑洞目录
+        ign = {l.strip() for l in self.ign_edit.toPlainText().split('\n') if l.strip()}
+        ok2, msg2 = backend.save_ignored_dirs(ign)
+        self.ignored_dirs = ign
+
+        if ok1 and ok2:
+            QMessageBox.information(self, "成功", "所有过滤规则已保存。")
+        else:
+            QMessageBox.warning(self, "注意", f"文件名单: {msg1}\n目录名单: {msg2}")
 
     def load_settings(self):
         last = self.config.get('Settings', 'last_scan_path', fallback='')
         if last: self.path_edit.setText(last); self.btn_action.setEnabled(True)
         self.out_edit.setText(self.config.get('Settings', 'output_path', fallback=''))
-
         theme = self.config.get('Settings', 'theme', fallback='dark')
-
-        # 【修复点】 使用统一的 self.theme_combo
         self.theme_combo.setCurrentIndex(1 if theme == 'light' else 0)
         self.apply_theme(self.theme_combo.currentIndex())
 
@@ -509,8 +477,14 @@ class MainWindow(QMainWindow):
         e.accept()
 
 
+# --- 4. 程序入口：main.py (推荐使用这个启动) ---
 if __name__ == "__main__":
+    if hasattr(Qt, 'AA_EnableHighDpiScaling'): QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt, 'AA_UseHighDpiPixmaps'): QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
+    # 初始样式占位，实际由 load_settings 加载
+    app.setStyleSheet(styles.DARK_QSS)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

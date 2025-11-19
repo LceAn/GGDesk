@@ -4,10 +4,11 @@ import re
 import configparser
 from collections import defaultdict
 
-# --- 1. 配置项与常量 ---
+# --- 常量定义 ---
 DEFAULT_OUTPUT_FOLDER_NAME = "MyTestShortcuts"
 CONFIG_FILE = "config.ini"
-FILENAME_BLOCKLIST_FILE = "blocklist.txt"
+FILENAME_BLOCKLIST = "blocklist.txt"
+FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
 
 DEFAULT_BLOCKLIST = {
     'uninstall.exe', 'unins000.exe', 'unins001.exe', 'unins002.exe',
@@ -16,16 +17,14 @@ DEFAULT_BLOCKLIST = {
     'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe'
 }
 
-# 【Beta 3.2 性能优化】 扫描时强制跳过的“黑洞目录”
-# 这些目录下的内容将被直接忽略，不会进入递归，极大地提升扫描速度
-IGNORED_DIRS = {
+DEFAULT_IGNORED_DIRS = {
     'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
     'venv', 'env', 'dist', 'build', 'tmp', 'temp',
     'Windows', 'ProgramData', '$RECYCLE.BIN', 'System Volume Information'
 }
 
 
-# --- 2. 核心功能 ---
+# --- 快捷方式核心 ---
 def create_shortcut(target_path, shortcut_path):
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
@@ -39,32 +38,52 @@ def create_shortcut(target_path, shortcut_path):
         return False, f"失败: {os.path.basename(target_path)} | {e}"
 
 
-# --- 3. 黑名单逻辑 ---
-def load_blocklist():
-    blocklist = set(DEFAULT_BLOCKLIST)
-    if os.path.exists(FILENAME_BLOCKLIST_FILE):
+# --- 列表加载/保存通用函数 ---
+def _load_set_from_file(filename, default_set):
+    result_set = set(default_set)
+    if os.path.exists(filename):
         try:
-            with open(FILENAME_BLOCKLIST_FILE, 'r') as f:
+            with open(filename, 'r') as f:
                 for line in f:
-                    if line.strip(): blocklist.add(line.strip().lower())
-            return blocklist, f"已加载 {len(blocklist)} 条过滤规则。"
+                    if line.strip(): result_set.add(line.strip())  # 注意：目录名可能区分大小写，暂时保持原样
+            return result_set, f"从 {filename} 加载了 {len(result_set)} 条规则。"
         except Exception as e:
-            return blocklist, f"[!] 读取规则失败: {e}"
+            return result_set, f"加载 {filename} 失败: {e}"
     else:
-        save_blocklist(blocklist)
-        return blocklist, f"初始化默认规则: {FILENAME_BLOCKLIST_FILE}。"
+        _save_set_to_file(filename, result_set)
+        return result_set, f"已创建默认规则文件: {filename}。"
 
 
-def save_blocklist(blocklist_set):
+def _save_set_to_file(filename, data_set):
     try:
-        with open(FILENAME_BLOCKLIST_FILE, 'w') as f:
-            for item in sorted(blocklist_set): f.write(f"{item}\n")
+        with open(filename, 'w') as f:
+            for item in sorted(data_set): f.write(f"{item}\n")
         return True, "规则已保存。"
     except Exception as e:
         return False, f"写入失败: {e}"
 
 
-# --- 4. 配置文件逻辑 ---
+# --- 公开的加载/保存接口 ---
+def load_blocklist():
+    # 黑名单建议转小写处理
+    s, m = _load_set_from_file(FILENAME_BLOCKLIST, DEFAULT_BLOCKLIST)
+    return {x.lower() for x in s}, m
+
+
+def save_blocklist(s):
+    return _save_set_to_file(FILENAME_BLOCKLIST, s)
+
+
+def load_ignored_dirs():
+    # 目录名通常保持原样比较好，或者根据系统特性
+    return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)
+
+
+def save_ignored_dirs(s):
+    return _save_set_to_file(FILENAME_IGNORED_DIRS, s)
+
+
+# --- 配置文件 ---
 def load_config():
     config = configparser.ConfigParser()
     if os.path.exists(CONFIG_FILE):
@@ -81,22 +100,17 @@ def save_config(config):
         print(f"Config Error: {e}")
 
 
-# --- 5. 智能评分算法 ---
+# --- 评分与扫描 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
-    """
-    算法：对 .exe 进行评分，分数最高的作为推荐主程序。
-    """
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
     if not clean_name: clean_name = program_name.lower()
 
     scored_list = []
-
     for path in exe_paths:
         score = 0
         filename = os.path.basename(path).lower()
         name_no_ext = os.path.splitext(filename)[0]
 
-        # 评分规则
         if name_no_ext == program_name.lower():
             score += 100
         elif name_no_ext == clean_name:
@@ -123,36 +137,26 @@ def smart_rank_executables(program_name, exe_paths, root_path):
     return [x[1] for x in scored_list]
 
 
-# --- 6. 扫描逻辑 (Beta 3.2 目录剪枝优化) ---
-def discover_programs(scan_path, blocklist, log_callback, check_stop_callback=None):
+def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
     exe_folders = defaultdict(list)
     all_exes_data = {}
 
-    log_callback(f"--- [Beta 3.2] 启动极速扫描: {scan_path} ---")
+    log_callback(f"--- [Beta 4.0] 启动扫描: {scan_path} ---")
 
-    # topdown=True 是必须的，这样我们才能修改 dirs 列表以影响后续遍历
     for root, dirs, files in os.walk(scan_path, topdown=True):
-        # 1. 检查停止
         if check_stop_callback and check_stop_callback():
             log_callback("!!! 用户中止扫描 !!!")
             return []
 
-        # 2. 【Beta 3.2 核心优化】 目录剪枝 (Directory Pruning)
-        # 原地修改 dirs 列表，移除黑洞目录。os.walk 下次循环将不会进入被移除的目录。
-        # 我们同时过滤 IGNORED_DIRS 和以点开头(.git)的隐藏目录
-        original_count = len(dirs)
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith('.')]
+        # 目录剪枝：使用传入的 ignored_dirs
+        # 注意：Windows下路径大小写不敏感，建议统一转小写比较，或者保持原样
+        # 这里做一个简单的包含检查
+        dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith('.')]
 
-        # (可选) 如果跳过了目录，可以在日志中体现（为了性能，这里仅在大量跳过时记录）
-        # if len(dirs) < original_count:
-        #    log_callback(f"跳过 {original_count - len(dirs)} 个无关目录...")
-
-        # 3. 文件处理
         current_exes = []
         for file in files:
             if file.lower().endswith(".exe"):
                 if file.lower() in blocklist: continue
-
                 try:
                     full_path = os.path.join(root, file)
                     size_bytes = os.path.getsize(full_path)
@@ -160,7 +164,6 @@ def discover_programs(scan_path, blocklist, log_callback, check_stop_callback=No
                     all_exes_data[full_path] = (full_path, file, size_bytes, os.path.relpath(root, scan_path))
                 except:
                     pass
-
         if current_exes:
             exe_folders[root] = current_exes
 
@@ -168,7 +171,6 @@ def discover_programs(scan_path, blocklist, log_callback, check_stop_callback=No
         log_callback("未找到有效程序。")
         return []
 
-    # 整理
     sorted_folders = sorted(exe_folders.keys())
     top_level_folders = []
     if sorted_folders:
@@ -181,7 +183,6 @@ def discover_programs(scan_path, blocklist, log_callback, check_stop_callback=No
 
     log_callback(f"定位到 {len(top_level_folders)} 个程序组，正在评分...")
 
-    # 分组与评分
     program_groups = defaultdict(list)
     program_roots = {}
 

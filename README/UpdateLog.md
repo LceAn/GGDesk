@@ -1,5 +1,25 @@
 ## 📝 完整更新日志
+### [2025-11-18] Beta 4.0 - 工程重构与模块化
 
+**🧱 架构重构 (Architecture & Refactoring)**
+
+  * **模块化拆分 (Modularization)**: 将单文件项目拆分为标准的 Python 模块结构。
+      * `scanner_backend.py`: 核心业务逻辑与 I/O。
+      * `scanner_ui.py`: GUI 界面与线程控制。
+      * `scanner_styles.py`: 独立的 QSS 样式表文件。
+      * `main.py`: 干净的程序入口。
+  * **文件结构优化**: 明确了配置文件的生成规则，项目根目录更加清晰。
+
+**✨ 新增功能 (New Features)**
+
+  * **独立过滤规则菜单 (Filters Menu)**: 在侧边栏新增“过滤规则”页面，将文件黑名单与目录黑名单管理从系统设置中分离。
+  * **黑洞目录管理 (Blackhole Dirs UI)**: 新增 `ignored_dirs.txt` 的可视化编辑功能。用户现在可以在界面上直接查看和修改需要跳过的目录列表，实时优化扫描性能。
+  * **Splitter 布局**: 过滤规则页面采用 `QSplitter` 左右分栏布局，方便同时对比和编辑两类规则。
+
+**💻 技术细节 (Technical)**
+
+  * **Config Persistence**: 新增 `ignored_dirs.txt` 的自动加载与保存逻辑。
+  * **Refactoring**: 从 UI 代码中移除了硬编码的 CSS 字符串，提高了代码的可读性与可维护性。
 
 
 ### [2025-11-18] Beta 3.2 - 性能专项优化
