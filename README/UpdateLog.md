@@ -1,4 +1,17 @@
 ## 📝 完整更新日志
+### [2025-11-19] Beta 6.0 - 后端架构重组 (Backend Refactoring)
+
+**🧱 架构重构 (Backend Architecture)**
+
+  * **Package Transition**: 将单文件的 `scanner_backend.py` 重构为标准的 Python Package (`scanner_backend/`)。
+  * **Module Separation**:
+      * `const.py`: 集中管理常量与默认配置。
+      * `manager_config.py`: 专注于 INI 配置文件的读写。
+      * `manager_rules.py`: 专注于 TXT 规则文件的 IO 操作。
+      * `utils_system.py`: 封装 Windows API 交互（快捷方式、资源管理器）。
+      * `core_discovery.py`: 包含核心的扫描、分词评分与去重算法。
+  * **Facade Pattern**: 通过 `__init__.py` 提供统一接口，确保前端 UI 代码零修改即可无缝迁移至新架构。
+-----
 ### [2025-11-19] Beta 5.5 - 规则界面重构与全文件支持 (Rules Redesign & File Types)
 
 **✨ 界面重绘 (UI Redesign)**
@@ -12,6 +25,7 @@
       * 正式解锁了 `*.bat` (脚本) 和 `*.lnk` (快捷方式) 的勾选框。
       * 现在用户可以扫描自定义目录下的批处理脚本或快捷方式，并将其纳入统一管理。
   * **过滤一致性**: 后端逻辑确保了所有的黑名单、大小过滤规则同样适用于新增的 `bat`、`jar` 和 `lnk` 文件类型。
+-----
 ### [2025-11-19] Beta 5.4 - JAR 支持与智能识别策略 (Strategy & Expansion)
 
 **🔭 扫描能力扩展 (Scan Expansion)**
@@ -25,6 +39,7 @@
 **✨ 界面优化 (UI Polish)**
 
   * **规则概览更新**: 扫描页面的顶部概览条现在会实时反映“智能识别”是否开启，让用户对当前的扫描逻辑一目了然。
+-----
 ### [2025-11-19] Beta 5.3 - 策略控制与关于页 (Policy & About)
 
 **🛡️ 策略管理 (Policy Control)**

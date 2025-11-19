@@ -1,154 +1,17 @@
+# scanner_backend/core_discovery.py
 import os
-import win32com.client
 import re
-import configparser
+import win32com.client
 from collections import defaultdict
-
-# --- 1. 配置项与常量 ---
-DEFAULT_OUTPUT_FOLDER_NAME = "MyTestShortcuts"
-CONFIG_FILE = "config.ini"
-FILENAME_BLOCKLIST = "blocklist.txt"
-FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
-
-DEFAULT_CONFIG = {
-    'enable_blacklist': 'true',
-    'enable_ignored_dirs': 'true',
-    'enable_size_filter': 'false',
-    'min_size_kb': '0',
-    'max_size_mb': '500',
-    'target_extensions': '.exe',
-    'enable_deduplication': 'true',
-    'default_check_new': 'true',
-    'default_check_existing': 'false',
-    'enable_smart_root': 'true'
-}
-
-DEFAULT_BLOCKLIST = {
-    'uninstall.exe', 'unins000.exe', 'unins001.exe', 'unins002.exe',
-    'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
-    'vcredist_x64.exe', 'vcredist_x86.exe', 'vc_redist.x64.exe', 'vc_redist.x86.exe',
-    'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe',
-    'splash.exe', 'unitycrashhandler64.exe'
-}
-
-DEFAULT_IGNORED_DIRS = {
-    'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
-    'venv', 'env', 'dist', 'build', 'tmp', 'temp', 'jbr', 'jre', 'lib', 'plugins',
-    'Windows', 'ProgramData', '$RECYCLE.BIN', 'System Volume Information'
-}
+from .manager_config import load_config
 
 
-# --- 2. 核心功能 ---
-def create_shortcut(target_path, shortcut_path, args=""):
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shortcut = shell.CreateShortCut(shortcut_path)
-        if "://" not in target_path and ":" not in target_path and "\\" not in target_path and "shell:AppsFolder" in args:
-            shortcut.TargetPath = "explorer.exe";
-            shortcut.Arguments = args;
-            shortcut.IconLocation = "explorer.exe,0"
-        else:
-            shortcut.TargetPath = target_path
-            if os.path.exists(target_path): shortcut.WorkingDirectory = os.path.dirname(target_path)
-            shortcut.IconLocation = target_path
-        shortcut.Save()
-        return True, f"成功: {os.path.basename(shortcut_path)}"
-    except Exception as e:
-        return False, f"失败: {os.path.basename(shortcut_path)} | {e}"
-
-
-def open_file_explorer(path):
-    if not os.path.exists(path): return
-    try:
-        os.startfile(path)
-    except Exception as e:
-        print(f"无法打开文件夹: {e}")
-
-
-def scan_existing_shortcuts(folder_path):
-    results = []
-    if not os.path.exists(folder_path): return results
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-        for file in os.listdir(folder_path):
-            if file.lower().endswith(".lnk"):
-                full_path = os.path.join(folder_path, file)
-                try:
-                    shortcut = shell.CreateShortCut(full_path)
-                    results.append((file, shortcut.TargetPath))
-                except:
-                    results.append((file, "无法读取目标"))
-    except:
-        pass
-    return results
-
-
-def normalize_path(path):
-    if not path: return ""
-    return os.path.normpath(os.path.abspath(path)).lower()
-
-
-# --- 3. IO 逻辑 ---
-def _load_set_from_file(filename, default_set):
-    result_set = set(default_set)
-    if os.path.exists(filename):
-        try:
-            with open(filename, 'r') as f:
-                for line in f:
-                    if line.strip(): result_set.add(line.strip())
-            return result_set, f"加载规则完成"
-        except:
-            return result_set, "加载失败"
-    else:
-        _save_set_to_file(filename, result_set)
-        return result_set, "创建默认规则"
-
-
-def _save_set_to_file(filename, data_set):
-    try:
-        with open(filename, 'w') as f:
-            for item in sorted(data_set): f.write(f"{item}\n")
-        return True, "保存成功"
-    except Exception as e:
-        return False, f"写入失败: {e}"
-
-
-def load_blocklist(): s, m = _load_set_from_file(FILENAME_BLOCKLIST, DEFAULT_BLOCKLIST); return {x.lower() for x in
-                                                                                                 s}, m
-
-
-def save_blocklist(s): return _save_set_to_file(FILENAME_BLOCKLIST, s)
-
-
-def load_ignored_dirs(): return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)[0], ""
-
-
-def save_ignored_dirs(s): return _save_set_to_file(FILENAME_IGNORED_DIRS, s)
-
-
-# --- 4. 配置文件 ---
-def load_config():
-    config = configparser.ConfigParser()
-    if os.path.exists(CONFIG_FILE): config.read(CONFIG_FILE, encoding='utf-8')
-    if 'Settings' not in config: config['Settings'] = {}
-    if 'Rules' not in config: config['Rules'] = {}
-    for k, v in DEFAULT_CONFIG.items():
-        if k not in config['Rules']: config['Rules'][k] = v
-    return config
-
-
-def save_config(config):
-    try:
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            config.write(f)
-    except Exception as e:
-        print(f"Config Error: {e}")
-
-
-# --- 5. 扫描源 ---
+# --- 扫描源实现 ---
 def scan_start_menu(blocklist):
-    paths = [os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
-             os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')]
+    paths = [
+        os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
+        os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')
+    ]
     results = []
     shell = win32com.client.Dispatch("WScript.Shell")
     for p in paths:
@@ -185,7 +48,7 @@ def scan_uwp_apps(blocklist):
     return results
 
 
-# --- 6. 核心算法 ---
+# --- 智能评分 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
@@ -205,10 +68,7 @@ def smart_rank_executables(program_name, exe_paths, root_path):
             score += 50
         if name_no_ext in ['launcher', 'main', 'start', 'app', 'run']: score += 20
         if '64' in name_no_ext: score += 10
-
-        # 【Beta 5.5】 给 .exe 小幅加分，作为同名文件的决胜局
         if filename.endswith('.exe'): score += 5
-
         rel_path = os.path.relpath(path, root_path)
         score -= (rel_path.count(os.path.sep) * 15)
         negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
@@ -220,6 +80,7 @@ def smart_rank_executables(program_name, exe_paths, root_path):
     return [x[1] for x in scored_list]
 
 
+# --- 主扫描入口 ---
 def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
     conf = load_config()
     rules = conf['Rules']
@@ -229,6 +90,7 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
     seen_names = set()
     raw_results = []
 
+    # 1. Start Menu
     if 'start_menu' in sources:
         log_callback("--- 扫描: 系统开始菜单 ---")
         items = scan_start_menu(blocklist)
@@ -238,6 +100,7 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
                  'type': 'start_menu'})
 
+    # 2. UWP
     if 'uwp' in sources:
         log_callback("--- 扫描: Microsoft Store ---")
         items = scan_uwp_apps(blocklist)
@@ -247,6 +110,7 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
                  'type': 'uwp'})
 
+    # 3. Custom Path
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
         log_callback(f"--- 扫描: 自定义文件夹 {custom_path} ---")
         use_size = rules.getboolean('enable_size_filter', False)
