@@ -10,17 +10,6 @@ CONFIG_FILE = "config.ini"
 FILENAME_BLOCKLIST = "blocklist.txt"
 FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
 
-# 默认配置值
-DEFAULT_CONFIG = {
-    'enable_blacklist': 'true',
-    'enable_ignored_dirs': 'true',
-    'enable_size_filter': 'false',
-    'min_size_kb': '0',
-    'max_size_mb': '500',
-    'target_extensions': '.exe',  # 逗号分隔，如 .exe,.bat
-    'scan_mode': 'custom'  # custom, start_menu, uwp
-}
-
 DEFAULT_BLOCKLIST = {
     'uninstall.exe', 'unins000.exe', 'unins001.exe', 'unins002.exe',
     'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
@@ -36,18 +25,23 @@ DEFAULT_IGNORED_DIRS = {
 }
 
 
-# --- 2. 核心功能 (快捷方式/打开) ---
-def create_shortcut(target_path, shortcut_path):
+# --- 2. 核心功能 ---
+def create_shortcut(target_path, shortcut_path, args=""):
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
         shortcut = shell.CreateShortCut(shortcut_path)
-        shortcut.TargetPath = target_path
-        shortcut.WorkingDirectory = os.path.dirname(target_path)
-        shortcut.IconLocation = target_path
+        if "://" not in target_path and ":" not in target_path and "\\" not in target_path and "shell:AppsFolder" in args:
+            shortcut.TargetPath = "explorer.exe";
+            shortcut.Arguments = args;
+            shortcut.IconLocation = "explorer.exe,0"
+        else:
+            shortcut.TargetPath = target_path
+            if os.path.exists(target_path): shortcut.WorkingDirectory = os.path.dirname(target_path)
+            shortcut.IconLocation = target_path
         shortcut.Save()
         return True, f"成功: {os.path.basename(shortcut_path)}"
     except Exception as e:
-        return False, f"失败: {os.path.basename(target_path)} | {e}"
+        return False, f"失败: {os.path.basename(shortcut_path)} | {e}"
 
 
 def open_file_explorer(path):
@@ -106,31 +100,25 @@ def _save_set_to_file(filename, data_set):
         return False, f"写入失败: {e}"
 
 
-def load_blocklist():
-    s, m = _load_set_from_file(FILENAME_BLOCKLIST, DEFAULT_BLOCKLIST)
-    return {x.lower() for x in s}, m
+def load_blocklist(): s, m = _load_set_from_file(FILENAME_BLOCKLIST, DEFAULT_BLOCKLIST); return {x.lower() for x in
+                                                                                                 s}, m
 
 
 def save_blocklist(s): return _save_set_to_file(FILENAME_BLOCKLIST, s)
 
 
-def load_ignored_dirs(): return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)
+def load_ignored_dirs(): return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)[0], ""
 
 
 def save_ignored_dirs(s): return _save_set_to_file(FILENAME_IGNORED_DIRS, s)
 
 
-# --- 4. 配置文件 (Beta 5.0 增强) ---
+# --- 4. 配置文件 ---
 def load_config():
     config = configparser.ConfigParser()
     if os.path.exists(CONFIG_FILE): config.read(CONFIG_FILE, encoding='utf-8')
     if 'Settings' not in config: config['Settings'] = {}
-    if 'Rules' not in config: config['Rules'] = {}  # 新增 Rules 节点
-
-    # 填充默认值
-    for k, v in DEFAULT_CONFIG.items():
-        if k not in config['Rules']: config['Rules'][k] = v
-
+    if 'Rules' not in config: config['Rules'] = {}
     return config
 
 
@@ -142,18 +130,79 @@ def save_config(config):
         print(f"Config Error: {e}")
 
 
-# --- 5. 智能评分 ---
+# --- 5. 扫描源实现 ---
+
+# 【Beta 5.2 修复】 增加 blocklist 参数，进行过滤
+def scan_start_menu(blocklist):
+    """扫描开始菜单中的快捷方式，并应用黑名单"""
+    paths = [
+        os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
+        os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')
+    ]
+    results = []
+    shell = win32com.client.Dispatch("WScript.Shell")
+
+    for p in paths:
+        if not os.path.exists(p): continue
+        for root, _, files in os.walk(p):
+            for f in files:
+                if f.lower().endswith('.lnk'):
+                    full_path = os.path.join(root, f)
+                    try:
+                        sc = shell.CreateShortCut(full_path)
+                        target = sc.TargetPath
+                        if target.lower().endswith('.exe'):
+                            # 【核心修复】 检查目标文件是否在黑名单中
+                            exe_name = os.path.basename(target).lower()
+                            if exe_name in blocklist:
+                                continue  # 跳过黑名单程序
+
+                            results.append({
+                                'name': os.path.splitext(f)[0],
+                                'path': target,
+                                'root': root,
+                                'type': 'start_menu'
+                            })
+                    except:
+                        pass
+    return results
+
+
+def scan_uwp_apps(blocklist):
+    """扫描 UWP 应用"""
+    results = []
+    try:
+        shell = win32com.client.Dispatch("Shell.Application")
+        apps_folder = shell.NameSpace("shell:AppsFolder")
+        if not apps_folder: return []
+
+        for item in apps_folder.Items():
+            name = item.Name
+            path = item.Path
+            if name and path:
+                # UWP 没有 .exe 后缀，直接匹配名称是否包含黑名单关键词 (可选)
+                # 这里简单处理：如果名称完全匹配黑名单（去掉后缀），则过滤
+                # 但通常 UWP 不会有 uninstall.exe 这种东西
+                results.append({
+                    'name': name,
+                    'path': path,
+                    'root': "Microsoft Store",
+                    'type': 'uwp'
+                })
+    except:
+        pass
+    return results
+
+
+# --- 6. 综合扫描逻辑 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
     scored_list = []
-
     for path in exe_paths:
         score = 0
         filename = os.path.basename(path).lower()
         name_no_ext = os.path.splitext(filename)[0]
-
-        # 基础分
         for token in tokens:
             if token == name_no_ext:
                 score += 150
@@ -165,124 +214,120 @@ def smart_rank_executables(program_name, exe_paths, root_path):
             score += 50
         if name_no_ext in ['launcher', 'main', 'start', 'app', 'run']: score += 20
         if '64' in name_no_ext: score += 10
-
-        # 深度惩罚
-        rel = os.path.relpath(path, root_path)
-        score -= (rel.count(os.path.sep) * 15)
-
-        # 负面词
-        neg = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler', 'uninstall',
-               'eula']
-        for kw in neg:
+        rel_path = os.path.relpath(path, root_path)
+        score -= (rel_path.count(os.path.sep) * 15)
+        negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
+                             'uninstall', 'eula']
+        for kw in negative_keywords:
             if kw in name_no_ext: score -= 100
-
         scored_list.append((score, path))
-
     scored_list.sort(key=lambda x: x[0], reverse=True)
     return [x[1] for x in scored_list]
 
 
-# --- 6. 扫描逻辑 (Beta 5.0: 规则过滤) ---
-def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
-    # 加载规则配置
-    conf = load_config()
-    rules = conf['Rules']
+def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
+    final_results = []
 
-    use_blacklist = rules.getboolean('enable_blacklist', True)
-    use_ignore_dir = rules.getboolean('enable_ignored_dirs', True)
+    # 1. 开始菜单 (传入 blocklist)
+    if 'start_menu' in sources:
+        log_callback("--- 正在扫描系统开始菜单 ---")
+        sm_items = scan_start_menu(blocklist)
+        log_callback(f"  -> 发现 {len(sm_items)} 个快捷方式")
+        for item in sm_items:
+            final_results.append({
+                'name': item['name'],
+                'root_path': item['root'],
+                'all_exes': [],
+                'selected_exes': (item['path'],),
+                'type': 'start_menu'
+            })
 
-    use_size_filter = rules.getboolean('enable_size_filter', False)
-    min_kb = rules.getint('min_size_kb', 0) * 1024
-    max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
+    # 2. UWP
+    if 'uwp' in sources:
+        log_callback("--- 正在扫描 Microsoft Store 应用 (UWP) ---")
+        uwp_items = scan_uwp_apps(blocklist)
+        log_callback(f"  -> 发现 {len(uwp_items)} 个应用")
+        for item in uwp_items:
+            final_results.append({
+                'name': item['name'],
+                'root_path': "UWP / System",
+                'all_exes': [],
+                'selected_exes': (item['path'],),
+                'type': 'uwp'
+            })
 
-    exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
+    # 3. 自定义文件夹
+    if 'custom' in sources and custom_path and os.path.exists(custom_path):
+        log_callback(f"--- 正在扫描自定义文件夹: {custom_path} ---")
+        conf = load_config()
+        rules = conf['Rules']
+        use_size = rules.getboolean('enable_size_filter', False)
+        min_kb = rules.getint('min_size_kb', 0) * 1024
+        max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
+        exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
 
-    exe_folders = defaultdict(list)
-    all_exes_data = {}
+        exe_folders = defaultdict(list);
+        all_exes_data = {}
 
-    log_callback(f"--- [Beta 5.0] 启动扫描: {scan_path} ---")
-    log_callback(f"规则: 黑名单={use_blacklist}, 大小过滤={use_size_filter}, 类型={exts}")
-
-    for root, dirs, files in os.walk(scan_path, topdown=True):
-        if check_stop_callback and check_stop_callback(): return []
-
-        # 1. 目录过滤 (如果开启)
-        if use_ignore_dir:
+        for root, dirs, files in os.walk(custom_path, topdown=True):
+            if check_stop_callback and check_stop_callback(): return final_results
             ignored_lower = {d.lower() for d in ignored_dirs}
             dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
-        current_exes = []
-        for file in files:
-            # 2. 扩展名过滤
-            is_target = False
-            for ext in exts:
-                if file.lower().endswith(ext):
-                    is_target = True
-                    break
-            if not is_target: continue
+            current_exes = []
+            for file in files:
+                is_target = False
+                for ext in exts:
+                    if file.lower().endswith(ext): is_target = True; break
+                if not is_target: continue
 
-            # 3. 黑名单过滤 (如果开启)
-            if use_blacklist and file.lower() in blocklist: continue
+                # 黑名单检查
+                if file.lower() in blocklist: continue
 
-            try:
-                full_path = os.path.join(root, file)
-                size_bytes = os.path.getsize(full_path)
+                try:
+                    full_path = os.path.join(root, file)
+                    size = os.path.getsize(full_path)
+                    if use_size and (size < min_kb or size > max_mb): continue
+                    current_exes.append(full_path)
+                    all_exes_data[full_path] = (full_path, file, size, os.path.relpath(root, custom_path))
+                except:
+                    pass
+            if current_exes: exe_folders[root] = current_exes
 
-                # 4. 大小过滤 (如果开启)
-                if use_size_filter:
-                    if size_bytes < min_kb or size_bytes > max_mb:
-                        continue
+        sorted_folders = sorted(exe_folders.keys())
+        top_level_folders = []
+        if sorted_folders:
+            last = sorted_folders[0];
+            top_level_folders.append(last)
+            for curr in sorted_folders[1:]:
+                if not curr.startswith(last + os.path.sep): top_level_folders.append(curr); last = curr
 
-                current_exes.append(full_path)
-                all_exes_data[full_path] = (full_path, file, size_bytes, os.path.relpath(root, scan_path))
-            except:
-                pass
+        program_groups = defaultdict(list);
+        program_roots = {}
+        for folder in top_level_folders:
+            name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
+                folder).lower() == 'bin' else os.path.basename(folder)
+            root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
+            is_sub = False
+            for ex_root in list(program_roots.keys()):
+                if root.startswith(ex_root + os.path.sep): is_sub = True; break
+                if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
+            if not is_sub: program_roots[root] = name
 
-        if current_exes: exe_folders[root] = current_exes
+        for full_path in all_exes_data.keys():
+            match_root = None
+            for root in program_roots.keys():
+                if full_path.startswith(root + os.path.sep):
+                    if match_root is None or len(root) > len(match_root): match_root = root
+            if match_root: program_groups[match_root].append(full_path)
 
-    if not exe_folders:
-        log_callback("未找到符合条件的程序。")
-        return []
+        for root, exe_paths in program_groups.items():
+            name = program_roots[root]
+            ranked_exes = smart_rank_executables(name, exe_paths, root)
+            selected = tuple([ranked_exes[0]]) if ranked_exes else ()
+            prog_data = {'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
+                         'selected_exes': selected, 'type': 'custom'}
+            final_results.append(prog_data)
 
-    # ... (后续分组逻辑保持不变，为节省篇幅省略，逻辑与 Beta 4.3 一致) ...
-    # 如果需要完整代码，我可以把分组部分也贴上，但这部分没有变动。
-
-    # --- 分组逻辑开始 ---
-    sorted_folders = sorted(exe_folders.keys())
-    top_level_folders = []
-    if sorted_folders:
-        last = sorted_folders[0];
-        top_level_folders.append(last)
-        for curr in sorted_folders[1:]:
-            if not curr.startswith(last + os.path.sep): top_level_folders.append(curr); last = curr
-
-    program_groups = defaultdict(list);
-    program_roots = {}
-    for folder in top_level_folders:
-        name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
-            folder).lower() == 'bin' else os.path.basename(folder)
-        root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
-        is_sub = False
-        for ex_root in list(program_roots.keys()):
-            if root.startswith(ex_root + os.path.sep): is_sub = True; break
-            if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
-        if not is_sub: program_roots[root] = name
-
-    for full_path in all_exes_data.keys():
-        match_root = None
-        for root in program_roots.keys():
-            if full_path.startswith(root + os.path.sep):
-                if match_root is None or len(root) > len(match_root): match_root = root
-        if match_root: program_groups[match_root].append(full_path)
-
-    final_programs = []
-    for root, exe_paths in program_groups.items():
-        name = program_roots[root]
-        ranked_exes = smart_rank_executables(name, exe_paths, root)
-        selected = tuple([ranked_exes[0]]) if ranked_exes else ()
-        prog_data = {'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
-                     'selected_exes': selected}
-        final_programs.append(prog_data)
-
-    log_callback(f"完成，生成 {len(final_programs)} 个结果。")
-    return sorted(final_programs, key=lambda p: p['name'])
+    log_callback(f"扫描完成，共汇总 {len(final_results)} 个结果。")
+    return sorted(final_results, key=lambda p: p['name'])

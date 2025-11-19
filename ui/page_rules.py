@@ -1,13 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QCheckBox, QGroupBox, QSpinBox, QRadioButton,
-    QButtonGroup, QDialog, QFrame
+    QButtonGroup, QDialog, QFrame, QMessageBox
 )
 from PySide6.QtCore import Qt
 import scanner_backend as backend
 
 
-# --- 通用文本编辑弹窗 ---
+# --- 通用文本编辑弹窗 (保持不变) ---
 class ListEditDialog(QDialog):
     def __init__(self, parent, title, data_set, help_text):
         super().__init__(parent)
@@ -55,36 +55,19 @@ class RulesPage(QWidget):
 
         layout.addWidget(QLabel("🛡️ 扫描规则配置"), 0, Qt.AlignmentFlag.AlignBottom)
 
-        # --- 1. 扫描范围 ---
-        g_scope = QGroupBox("扫描范围 (Scan Scope)")
-        l_scope = QVBoxLayout(g_scope)
+        # --- 【Beta 5.1.1 修正】 移除了“扫描范围”组，因为已移动至扫描首页 ---
 
-        self.rb_custom = QRadioButton("自定义文件夹 (Custom Path)")
-        self.rb_custom.setChecked(True)
-        l_scope.addWidget(self.rb_custom)
-
-        # 预留功能 (Beta 6)
-        self.rb_start = QRadioButton("系统开始菜单 (Start Menu) - [Beta 6]")
-        self.rb_start.setEnabled(False)  # 暂时禁用
-        l_scope.addWidget(self.rb_start)
-
-        self.rb_uwp = QRadioButton("微软商店应用 (UWP Apps) - [Beta 6]")
-        self.rb_uwp.setEnabled(False)  # 暂时禁用
-        l_scope.addWidget(self.rb_uwp)
-
-        layout.addWidget(g_scope)
-
-        # --- 2. 文件类型 ---
+        # --- 1. 文件类型 (原序号2) ---
         g_ext = QGroupBox("目标文件类型 (Target Extensions)")
         l_ext = QHBoxLayout(g_ext)
 
         self.chk_exe = QCheckBox("*.exe (可执行程序)")
         self.chk_exe.setChecked(True)  # 默认必须有
-        self.chk_exe.setEnabled(False)  # 强制开启，防止误操作
+        self.chk_exe.setEnabled(False)  # 强制开启
         l_ext.addWidget(self.chk_exe)
 
         self.chk_bat = QCheckBox("*.bat / *.cmd (脚本)")
-        self.chk_bat.setEnabled(False)  # 暂时预留，后端逻辑需要微调支持
+        self.chk_bat.setEnabled(False)  # 预留
         l_ext.addWidget(self.chk_bat)
 
         self.chk_lnk = QCheckBox("*.lnk (快捷方式)")
@@ -94,12 +77,12 @@ class RulesPage(QWidget):
         l_ext.addStretch()
         layout.addWidget(g_ext)
 
-        # --- 3. 过滤规则 (核心) ---
+        # --- 2. 过滤规则 (原序号3) ---
         g_filter = QGroupBox("过滤规则 (Filter Rules)")
         l_filter = QVBoxLayout(g_filter);
         l_filter.setSpacing(15)
 
-        # 3.1 大小过滤
+        # 2.1 大小过滤
         row_size = QHBoxLayout()
         self.chk_size = QCheckBox("启用文件大小过滤")
         self.chk_size.toggled.connect(self.toggle_size_inputs)
@@ -125,7 +108,7 @@ class RulesPage(QWidget):
         line.setFrameShadow(QFrame.Shadow.Sunken);
         l_filter.addWidget(line)
 
-        # 3.2 黑名单
+        # 2.2 黑名单
         row_blk = QHBoxLayout()
         self.chk_blk = QCheckBox("启用文件名黑名单 (Blacklist)")
         row_blk.addWidget(self.chk_blk)
@@ -135,7 +118,7 @@ class RulesPage(QWidget):
         row_blk.addWidget(btn_blk)
         l_filter.addLayout(row_blk)
 
-        # 3.3 黑洞目录
+        # 2.3 黑洞目录
         row_ign = QHBoxLayout()
         self.chk_ign = QCheckBox("启用黑洞目录跳过 (Ignore Dirs)")
         row_ign.addWidget(self.chk_ign)
@@ -160,7 +143,6 @@ class RulesPage(QWidget):
 
     def load_ui_states(self):
         rules = self.config['Rules']
-        # Checkboxes
         self.chk_blk.setChecked(rules.getboolean('enable_blacklist', True))
         self.chk_ign.setChecked(rules.getboolean('enable_ignored_dirs', True))
 
@@ -175,7 +157,7 @@ class RulesPage(QWidget):
         dlg = ListEditDialog(self, "编辑文件名黑名单", self.blocklist, "跳过包含以下关键词的文件 (不区分大小写):")
         if dlg.exec():
             self.blocklist = dlg.get_data()
-            backend.save_blocklist(self.blocklist)  # 立即保存列表文件
+            backend.save_blocklist(self.blocklist)
 
     def edit_ignored(self):
         dlg = ListEditDialog(self, "编辑黑洞目录", self.ignored_dirs, "完全跳过以下目录名称 (精确匹配):")
@@ -184,7 +166,6 @@ class RulesPage(QWidget):
             backend.save_ignored_dirs(self.ignored_dirs)
 
     def save_config(self):
-        # 保存开关状态到 config.ini
         rules = self.config['Rules']
         rules['enable_blacklist'] = str(self.chk_blk.isChecked())
         rules['enable_ignored_dirs'] = str(self.chk_ign.isChecked())
@@ -193,7 +174,4 @@ class RulesPage(QWidget):
         rules['max_size_mb'] = str(self.spin_max.value())
 
         backend.save_config(self.config)
-
-        # 显示反馈
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "完成", "规则配置已更新，将在下次扫描时生效。")
