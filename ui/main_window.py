@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-    QPushButton, QButtonGroup, QStackedWidget, QStatusBar, QProgressBar
+    QPushButton, QButtonGroup, QStackedWidget, QStatusBar, QProgressBar,
+    QFrame  # 新增引用
 )
 from PySide6.QtCore import Qt, QSize, Slot
 import re
@@ -16,16 +17,15 @@ from .page_settings import SettingsPage
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("快捷方式扫描器 (Beta 4.3.3 Modular)")
+        self.setWindowTitle("快捷方式扫描器 (Beta 4.5 Experience)")
         self.config = backend.load_config()
 
         self.build_ui()
         self.setup_statusbar()
         self.restore_geometry()
 
-        # 初始化路径提示
         self.on_output_path_changed(self.page_output.out_edit.text())
-        self.page_settings.append_log("系统已就绪 (模块化重构版)")
+        self.page_settings.append_log("系统已就绪 (体验优化版)")
 
     def setup_statusbar(self):
         self.status_bar = QStatusBar();
@@ -67,21 +67,38 @@ class MainWindow(QMainWindow):
 
         sb_layout.addWidget(QLabel(" 导航菜单"));
         sb_layout.addSpacing(5)
-        from PySide6.QtWidgets import QStyle  # 局部引用
+        from PySide6.QtWidgets import QStyle
         add_nav("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 0).setChecked(True)
         add_nav("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 1)
         add_nav("  过滤规则", QStyle.StandardPixmap.SP_MessageBoxWarning, 2)
         add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 3)
-        sb_layout.addStretch()
 
-        ver_lbl = QLabel("Beta 4.3.3");
+        # 【Beta 4.5 修复】 使用 addStretch(1) 将下方内容顶到底部
+        sb_layout.addStretch(1)
+
+        # 分隔线
+        line = QFrame();
+        line.setFrameShape(QFrame.Shape.HLine);
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("border-color: #444444;")  # 弱化线条
+        sb_layout.addWidget(line)
+        sb_layout.addSpacing(10)
+
+        # 归属信息 (增加底部边距)
+        ver_lbl = QLabel("Beta 4.5");
         ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver_lbl.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
+
         auth_lbl = QLabel("By LceAn");
         auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        auth_lbl.setStyleSheet("color: #666666; font-size: 8pt; margin-top: -5px;")
-        sb_layout.addWidget(ver_lbl);
+        auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")  # 稍微调大字体
+
+        sb_layout.addWidget(ver_lbl)
         sb_layout.addWidget(auth_lbl)
+
+        # 额外的底部留白，防止贴底
+        sb_layout.addSpacing(10)
+
         root_layout.addWidget(sidebar)
 
         # Content Pages
@@ -101,12 +118,9 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.stack)
         self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
 
-        # --- 信号连接 ---
-        # 1. 扫描页日志 -> 设置页日志框
+        # Signals
         self.page_scan.sig_log.connect(self.page_settings.append_log)
-        # 2. 扫描页状态 -> 底部状态栏
         self.page_scan.sig_status.connect(self.update_status)
-        # 3. 输出页路径变动 -> 扫描页提示更新
         self.page_output.sig_path_changed.connect(self.on_output_path_changed)
 
     @Slot(str)
@@ -128,7 +142,6 @@ class MainWindow(QMainWindow):
             self.resize(950, 700)
 
     def closeEvent(self, e):
-        # 保存各个页面的状态
         self.page_scan.save_state()
         self.page_output.save_state()
         geo = self.geometry();

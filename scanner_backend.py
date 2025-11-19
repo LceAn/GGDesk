@@ -236,3 +236,19 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
 
     log_callback(f"完成，生成 {len(final_programs)} 个结果。")
     return sorted(final_programs, key=lambda p: p['name'])
+
+# 【Beta 4.4 新增】 路径标准化工具
+def normalize_path(path):
+    """将路径转换为统一格式（小写、绝对路径）以便对比"""
+    if not path: return ""
+    return os.path.normpath(os.path.abspath(path)).lower()
+
+
+# 【Beta 4.6 新增】 打开文件资源管理器
+def open_file_explorer(path):
+    """调用系统默认文件管理器打开指定路径"""
+    if not os.path.exists(path): return
+    try:
+        os.startfile(path)
+    except Exception as e:
+        print(f"无法打开文件夹: {e}")
