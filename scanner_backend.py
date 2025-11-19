@@ -4,7 +4,7 @@ import re
 import configparser
 from collections import defaultdict
 
-# --- 常量定义 ---
+# --- 1. 配置项与常量 ---
 DEFAULT_OUTPUT_FOLDER_NAME = "MyTestShortcuts"
 CONFIG_FILE = "config.ini"
 FILENAME_BLOCKLIST = "blocklist.txt"
@@ -14,17 +14,18 @@ DEFAULT_BLOCKLIST = {
     'uninstall.exe', 'unins000.exe', 'unins001.exe', 'unins002.exe',
     'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
     'vcredist_x64.exe', 'vcredist_x86.exe', 'vc_redist.x64.exe', 'vc_redist.x86.exe',
-    'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe'
+    'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe',
+    'splash.exe', 'unitycrashhandler64.exe'  # 补充一些常见的无关程序
 }
 
 DEFAULT_IGNORED_DIRS = {
     'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
-    'venv', 'env', 'dist', 'build', 'tmp', 'temp',
+    'venv', 'env', 'dist', 'build', 'tmp', 'temp', 'jbr', 'jre', 'lib', 'plugins',  # JetBrains/Java 常见干扰目录
     'Windows', 'ProgramData', '$RECYCLE.BIN', 'System Volume Information'
 }
 
 
-# --- 快捷方式核心 ---
+# --- 2. 核心功能 ---
 def create_shortcut(target_path, shortcut_path):
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
@@ -38,20 +39,20 @@ def create_shortcut(target_path, shortcut_path):
         return False, f"失败: {os.path.basename(target_path)} | {e}"
 
 
-# --- 列表加载/保存通用函数 ---
+# --- 3. IO 逻辑 (保持不变) ---
 def _load_set_from_file(filename, default_set):
     result_set = set(default_set)
     if os.path.exists(filename):
         try:
             with open(filename, 'r') as f:
                 for line in f:
-                    if line.strip(): result_set.add(line.strip())  # 注意：目录名可能区分大小写，暂时保持原样
-            return result_set, f"从 {filename} 加载了 {len(result_set)} 条规则。"
+                    if line.strip(): result_set.add(line.strip())
+            return result_set, f"从 {filename} 加载规则。"
         except Exception as e:
             return result_set, f"加载 {filename} 失败: {e}"
     else:
         _save_set_to_file(filename, result_set)
-        return result_set, f"已创建默认规则文件: {filename}。"
+        return result_set, f"已创建默认规则: {filename}。"
 
 
 def _save_set_to_file(filename, data_set):
@@ -63,31 +64,24 @@ def _save_set_to_file(filename, data_set):
         return False, f"写入失败: {e}"
 
 
-# --- 公开的加载/保存接口 ---
 def load_blocklist():
-    # 黑名单建议转小写处理
     s, m = _load_set_from_file(FILENAME_BLOCKLIST, DEFAULT_BLOCKLIST)
     return {x.lower() for x in s}, m
 
 
-def save_blocklist(s):
-    return _save_set_to_file(FILENAME_BLOCKLIST, s)
+def save_blocklist(s): return _save_set_to_file(FILENAME_BLOCKLIST, s)
 
 
-def load_ignored_dirs():
-    # 目录名通常保持原样比较好，或者根据系统特性
-    return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)
+def load_ignored_dirs(): return _load_set_from_file(FILENAME_IGNORED_DIRS, DEFAULT_IGNORED_DIRS)
 
 
-def save_ignored_dirs(s):
-    return _save_set_to_file(FILENAME_IGNORED_DIRS, s)
+def save_ignored_dirs(s): return _save_set_to_file(FILENAME_IGNORED_DIRS, s)
 
 
-# --- 配置文件 ---
+# --- 4. 配置文件 ---
 def load_config():
     config = configparser.ConfigParser()
-    if os.path.exists(CONFIG_FILE):
-        config.read(CONFIG_FILE, encoding='utf-8')
+    if os.path.exists(CONFIG_FILE): config.read(CONFIG_FILE, encoding='utf-8')
     if 'Settings' not in config: config['Settings'] = {}
     return config
 
@@ -100,58 +94,84 @@ def save_config(config):
         print(f"Config Error: {e}")
 
 
-# --- 评分与扫描 ---
+# --- 5. 【Beta 4.1 核心升级】智能评分算法 ---
 def smart_rank_executables(program_name, exe_paths, root_path):
+    """
+    算法：基于 分词匹配 (Token Matching) 的评分系统
+    """
+    # 1. 提取特征词 (Tokens)
+    # "IntelliJ IDEA 2025.2.4" -> ['intellij', 'idea', '2025', '2', '4']
+    # 过滤掉纯数字和太短的词
+    tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
+
+    # 全名压缩 (作为保底匹配)
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
-    if not clean_name: clean_name = program_name.lower()
 
     scored_list = []
+
     for path in exe_paths:
         score = 0
         filename = os.path.basename(path).lower()
         name_no_ext = os.path.splitext(filename)[0]
 
-        if name_no_ext == program_name.lower():
+        # --- 规则 A: 分词精确匹配 (权重最高: 150分) ---
+        # 解决了 "IntelliJ IDEA" vs "idea64.exe" 的问题
+        for token in tokens:
+            if token == name_no_ext:
+                score += 150
+            elif token in name_no_ext:
+                score += 80  # 包含特征词 (如 idea64 包含 idea)
+
+        # --- 规则 B: 全名匹配 (权重: 100分) ---
+        if name_no_ext == clean_name:
             score += 100
-        elif name_no_ext == clean_name:
-            score += 90
         elif clean_name in name_no_ext:
             score += 50
-        elif name_no_ext in clean_name:
-            score += 30
 
-        if name_no_ext in ['launcher', 'main', 'start', 'app']: score += 20
-        if '64' in name_no_ext: score += 5
+        # --- 规则 C: 通用启动器 (权重: 20分) ---
+        # 只有在没有匹配到特征词时，这个分数才有用
+        if name_no_ext in ['launcher', 'main', 'start', 'app', 'run']: score += 20
 
+        # --- 规则 D: 架构偏好 (权重: 10分) ---
+        if '64' in name_no_ext: score += 10
+
+        # --- 规则 E: 路径深度惩罚 (每层 -15分) ---
+        # 主程序通常在根目录或 bin 目录下，不想选太深的文件
         rel_path = os.path.relpath(path, root_path)
         depth = rel_path.count(os.path.sep)
-        score -= (depth * 10)
+        score -= (depth * 15)
 
-        negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler']
+        # --- 规则 F: 负面词惩罚 (大幅扣分) ---
+        negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
+                             'uninstall', 'eula']
         for kw in negative_keywords:
-            if kw in name_no_ext: score -= 50
+            if kw in name_no_ext: score -= 100
 
         scored_list.append((score, path))
 
+    # 排序
     scored_list.sort(key=lambda x: x[0], reverse=True)
+
+    # 调试日志 (可选，开发时打开)
+    # print(f"--- Scoring for {program_name} ---")
+    # for s, p in scored_list[:3]: print(f"  {s}: {os.path.basename(p)}")
+
     return [x[1] for x in scored_list]
 
 
+# --- 6. 扫描逻辑 ---
 def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
     exe_folders = defaultdict(list)
     all_exes_data = {}
 
-    log_callback(f"--- [Beta 4.0] 启动扫描: {scan_path} ---")
+    log_callback(f"--- [Beta 4.1] 启动智能扫描: {scan_path} ---")
 
     for root, dirs, files in os.walk(scan_path, topdown=True):
-        if check_stop_callback and check_stop_callback():
-            log_callback("!!! 用户中止扫描 !!!")
-            return []
+        if check_stop_callback and check_stop_callback(): return []
 
-        # 目录剪枝：使用传入的 ignored_dirs
-        # 注意：Windows下路径大小写不敏感，建议统一转小写比较，或者保持原样
-        # 这里做一个简单的包含检查
-        dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith('.')]
+        # 目录剪枝 (忽略大小写比较)
+        ignored_lower = {d.lower() for d in ignored_dirs}
+        dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
         current_exes = []
         for file in files:
@@ -164,13 +184,13 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
                     all_exes_data[full_path] = (full_path, file, size_bytes, os.path.relpath(root, scan_path))
                 except:
                     pass
-        if current_exes:
-            exe_folders[root] = current_exes
+        if current_exes: exe_folders[root] = current_exes
 
     if not exe_folders:
         log_callback("未找到有效程序。")
         return []
 
+    # 整理顶层目录
     sorted_folders = sorted(exe_folders.keys())
     top_level_folders = []
     if sorted_folders:
@@ -185,21 +205,15 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
 
     program_groups = defaultdict(list)
     program_roots = {}
-
     for folder in top_level_folders:
-        folder_name = os.path.basename(folder)
-        if folder_name.lower() == 'bin':
-            root = os.path.dirname(folder)
-            name = os.path.basename(root)
-        else:
-            root = folder
-            name = folder_name
+        name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
+            folder).lower() == 'bin' else os.path.basename(folder)
+        root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
 
         is_sub = False
         for ex_root in list(program_roots.keys()):
             if root.startswith(ex_root + os.path.sep): is_sub = True; break
             if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
-
         if not is_sub: program_roots[root] = name
 
     for full_path in all_exes_data.keys():
@@ -223,5 +237,5 @@ def discover_programs(scan_path, blocklist, ignored_dirs, log_callback, check_st
         }
         final_programs.append(prog_data)
 
-    log_callback(f"分析完成，生成 {len(final_programs)} 个结果。")
+    log_callback(f"完成，生成 {len(final_programs)} 个结果。")
     return sorted(final_programs, key=lambda p: p['name'])
