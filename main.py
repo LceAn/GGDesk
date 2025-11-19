@@ -1,14 +1,14 @@
 import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
-# 注意：现在 MainWindow 在 ui 包里
 from ui.main_window import MainWindow
 
 
 def main():
-    if hasattr(Qt, 'AA_EnableHighDpiScaling'): QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    # PySide6 6.0+ 自动处理 HighDPI，无需手动设置属性
+    # 直接初始化应用
     app = QApplication(sys.argv)
-    app.setApplicationName("ShortcutScanner")
+    app.setApplicationName("GGDesk")
 
     window = MainWindow()
     window.show()

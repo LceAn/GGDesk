@@ -1,58 +1,53 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QButtonGroup, QStackedWidget, QStatusBar, QProgressBar,
-    QFrame, QDialog
+    QFrame, QDialog, QStyle, QSizePolicy, QApplication
 )
-from PySide6.QtCore import Qt, QSize, Slot, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QCursor
-import re
+from PySide6.QtCore import Qt, QSize, Slot, QUrl, Signal, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QDesktopServices, QCursor, QIcon
 import scanner_backend as backend
+import scanner_styles as styles
 
 # 导入各个页面
 from .page_scan import ScanPage
 from .page_output import OutputPage
 from .page_rules import RulesPage
 from .page_settings import SettingsPage
+from .page_quick_launch import QuickLaunchPage
+from .page_launch_manage import LaunchManagePage
+from .page_model_config import ModelConfigPage
+from .dialog_welcome import WelcomeDialog
 
 
 # --- 关于弹窗 ---
 class AboutDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("关于 GGDesk Shortcut Scanner")
+        self.setWindowTitle("关于 GGDesk")
         self.setFixedSize(400, 250)
-
-        # 【Beta 5.3.2 修复】 显式设置标志：是对话框 + 有关闭按钮
-        # 这样既去掉了问号，又保证了 X 按钮可用
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-
         layout = QVBoxLayout(self);
         layout.setSpacing(15);
         layout.setContentsMargins(30, 30, 30, 30)
-
-        lbl_title = QLabel("GGDesk Shortcut Scanner")
-        lbl_title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #0078D7;")
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_title = QLabel("GGDesk Shortcut Scanner");
+        lbl_title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #0078D7;");
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter);
         layout.addWidget(lbl_title)
-
-        lbl_ver = QLabel("Version: Beta 5.3.2")
-        lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_ver = QLabel("Version: Beta 7.3.1");
+        lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
         layout.addWidget(lbl_ver)
-
-        btn_gh = QPushButton("🔗 GitHub 仓库");
-        btn_gh.setCursor(Qt.PointingHandCursor)
-        btn_gh.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/LceAn/GGDesk")))
-
+        btn_gh = QPushButton("🔗 GitHub");
+        btn_gh.setCursor(Qt.PointingHandCursor);
+        btn_gh.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/LceAn/GGDesk")));
+        layout.addWidget(btn_gh)
         btn_auth = QPushButton("👤 开发者主页 (LceAn)");
-        btn_auth.setCursor(Qt.PointingHandCursor)
-        btn_auth.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/LceAn")))
-
-        layout.addWidget(btn_gh);
-        layout.addWidget(btn_auth)
+        btn_auth.setCursor(Qt.PointingHandCursor);
+        btn_auth.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/LceAn")));
+        layout.addWidget(btn_auth);
         layout.addStretch()
 
 
-# 可点击的 Label
+# --- 可点击标签 ---
 class ClickableLabel(QLabel):
     clicked = Signal()
 
@@ -63,21 +58,33 @@ class ClickableLabel(QLabel):
     def mousePressEvent(self, event): self.clicked.emit()
 
 
+# --- 自定义侧边栏按钮 ---
+class NavButton(QPushButton):
+    def __init__(self, text, icon_enum, parent=None):
+        super().__init__(text, parent)
+        self.full_text = text
+        self.setObjectName("navButton")
+        self.setCheckable(True)
+        self.setIcon(QApplication.style().standardIcon(icon_enum))
+        self.setIconSize(QSize(20, 20))
+
+
+# --- 主窗口 ---
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("快捷方式扫描器 (Beta 5.3.2)")
+        self.setWindowTitle("GGDesk Beta 7.3.1")
         self.config = backend.load_config()
+        ok, msg = backend.init_databases()
 
         self.build_ui()
         self.setup_statusbar()
         self.restore_geometry()
 
-        # 初始化路径提示
-        if hasattr(self, 'page_output'):
-            self.on_output_path_changed(self.page_output.out_edit.text())
+        # 信号连接
+        self.page_manage.sig_settings_changed.connect(self.page_quick.load_data)
 
-        self.page_settings.append_log("系统已就绪")
+        self.check_first_run()
 
     def setup_statusbar(self):
         self.status_bar = QStatusBar();
@@ -86,7 +93,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addWidget(self.status_label)
         self.progress = QProgressBar();
         self.progress.setMaximumWidth(150);
-        self.progress.setVisible(False)
+        self.progress.setVisible(False);
         self.progress.setRange(0, 0);
         self.status_bar.addPermanentWidget(self.progress)
 
@@ -97,90 +104,169 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0);
         root_layout.setSpacing(0)
 
-        # Sidebar
-        sidebar = QWidget();
-        sidebar.setObjectName("sidebar");
-        sidebar.setFixedWidth(220)
-        sb_layout = QVBoxLayout(sidebar);
-        sb_layout.setContentsMargins(10, 20, 10, 20);
-        sb_layout.setSpacing(8)
+        # --- 1. Sidebar ---
+        self.sidebar = QWidget();
+        self.sidebar.setObjectName("sidebar");
+        self.sidebar.setFixedWidth(220)
+        sb_layout = QVBoxLayout(self.sidebar);
+        sb_layout.setContentsMargins(10, 10, 10, 10);
+        sb_layout.setSpacing(5)
+
+        # 汉堡菜单
+        self.btn_toggle = QPushButton("☰ GGDesk")
+        self.btn_toggle.setObjectName("navButton")
+        self.btn_toggle.setStyleSheet(
+            "font-weight: bold; font-size: 12pt; text-align: left; border: none; padding-left: 15px;")
+        self.btn_toggle.clicked.connect(self.toggle_sidebar)
+        sb_layout.addWidget(self.btn_toggle)
+        sb_layout.addSpacing(10)
+
         self.nav_group = QButtonGroup(self);
         self.nav_group.setExclusive(True)
+        self.nav_btns = []
+        self.nav_labels = []
 
-        def add_nav(text, icon_enum, id):
-            btn = QPushButton(text);
-            btn.setObjectName("navButton");
-            btn.setCheckable(True)
-            btn.setIcon(self.style().standardIcon(icon_enum));
-            btn.setIconSize(QSize(20, 20))
-            self.nav_group.addButton(btn, id);
-            sb_layout.addWidget(btn);
-            return btn
+        def add_cat(title):
+            lbl = QLabel(title);
+            lbl.setObjectName("navCategory");
+            lbl.setStyleSheet("color: #888; font-size: 9pt; margin-top: 10px; margin-bottom: 5px; margin-left: 5px;")
+            sb_layout.addWidget(lbl)
+            self.nav_labels.append(lbl)
+            return lbl
 
-        sb_layout.addWidget(QLabel(" 导航菜单"));
-        sb_layout.addSpacing(5)
-        from PySide6.QtWidgets import QStyle
-        add_nav("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 0).setChecked(True)
-        add_nav("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 1)
-        add_nav("  规则管理", QStyle.StandardPixmap.SP_FileDialogListView, 2)
-        add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 3)
+        # 菜单项
+        add_cat(" 快捷启动")
+        self.nav_quick = self.add_nav_btn("  快捷启动", QStyle.StandardPixmap.SP_DesktopIcon, 0, sb_layout)
+        self.nav_manage = self.add_nav_btn("  启动管理", QStyle.StandardPixmap.SP_FileDialogListView, 1, sb_layout)
+
+        add_cat(" 工具箱")
+        self.nav_scan = self.add_nav_btn("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 2, sb_layout)
+        self.nav_out = self.add_nav_btn("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 3, sb_layout)
+
+        add_cat(" 软件设置")
+        self.nav_filter = self.add_nav_btn("  规则管理", QStyle.StandardPixmap.SP_MessageBoxWarning, 4, sb_layout)
+        self.nav_model = self.add_nav_btn("  模型配置", QStyle.StandardPixmap.SP_DriveNetIcon, 5, sb_layout)
+        self.nav_set = self.add_nav_btn("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 6, sb_layout)
 
         sb_layout.addStretch(1)
-        line = QFrame();
-        line.setFrameShape(QFrame.Shape.HLine);
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("border-color: #444444;");
-        sb_layout.addWidget(line);
+
+        # 底部信息
+        self.line = QFrame();
+        self.line.setFrameShape(QFrame.Shape.HLine);
+        self.line.setFrameShadow(QFrame.Shadow.Sunken)
+        self.line.setStyleSheet("border-color: #444444;");
+        sb_layout.addWidget(self.line);
         sb_layout.addSpacing(10)
 
-        # 可点击的归属信息
-        ver_lbl = ClickableLabel("Beta 5.3.2");
-        ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ver_lbl.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
-        ver_lbl.clicked.connect(self.show_about)
+        self.lbl_ver = ClickableLabel("Beta 7.3.1");
+        self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
+        self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
+        self.lbl_ver.clicked.connect(self.show_about)
+        sb_layout.addWidget(self.lbl_ver)
 
-        auth_lbl = ClickableLabel("By LceAn");
-        auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")
-        auth_lbl.clicked.connect(self.show_about)
+        self.auth_lbl = ClickableLabel("By LceAn");
+        self.auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter);
+        self.auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")
+        self.auth_lbl.clicked.connect(self.show_about)
+        sb_layout.addWidget(self.auth_lbl)
 
-        sb_layout.addWidget(ver_lbl);
-        sb_layout.addWidget(auth_lbl);
-        sb_layout.addSpacing(10)
-        root_layout.addWidget(sidebar)
+        sb_layout.addSpacing(5)
+        root_layout.addWidget(self.sidebar)
 
-        # Content Pages
+        # --- 2. Pages ---
         self.stack = QStackedWidget();
         self.stack.setObjectName("mainArea")
 
-        self.page_scan = ScanPage()
-        self.page_output = OutputPage()
-        self.page_rules = RulesPage()
-        self.page_settings = SettingsPage()
+        self.page_quick = QuickLaunchPage()  # 0
+        self.page_manage = LaunchManagePage()  # 1
+        self.page_scan = ScanPage()  # 2
+        self.page_output = OutputPage()  # 3
+        self.page_rules = RulesPage()  # 4
+        self.page_model = ModelConfigPage()  # 5
+        self.page_settings = SettingsPage()  # 6
 
+        self.stack.addWidget(self.page_quick)
+        self.stack.addWidget(self.page_manage)
         self.stack.addWidget(self.page_scan)
         self.stack.addWidget(self.page_output)
         self.stack.addWidget(self.page_rules)
+        self.stack.addWidget(self.page_model)
         self.stack.addWidget(self.page_settings)
 
         root_layout.addWidget(self.stack)
-        self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
+        self.nav_group.idClicked.connect(self.on_nav_clicked)
+        self.nav_quick.setChecked(True);
+        self.stack.setCurrentIndex(0)
 
+        # Signals
         self.page_scan.sig_log.connect(self.page_settings.append_log)
         self.page_scan.sig_status.connect(self.update_status)
-        self.page_output.sig_path_changed.connect(self.on_output_path_changed)
+        if hasattr(self.page_output, 'sig_path_changed'): self.page_output.sig_path_changed.connect(
+            self.on_output_path_changed)
 
+    def add_nav_btn(self, text, icon, idx, layout):
+        btn = NavButton(text, icon)
+        self.nav_group.addButton(btn, idx)
+        layout.addWidget(btn)
+        self.nav_btns.append(btn)
+        return btn
+
+    def toggle_sidebar(self):
+        is_collapsed = self.sidebar.width() < 100
+        target_width = 220 if is_collapsed else 60
+        self.sidebar.setFixedWidth(target_width)
+
+        for btn in self.nav_btns:
+            btn.setText(btn.full_text if is_collapsed else "")
+            btn.setToolTip("" if is_collapsed else btn.full_text)
+            if not is_collapsed:
+                btn.setStyleSheet("text-align: center; padding: 10px;")
+            else:
+                btn.setStyleSheet("text-align: left; padding: 12px 15px;")
+
+        visible = is_collapsed
+        for lbl in self.nav_labels: lbl.setVisible(visible)
+        self.line.setVisible(visible);
+        self.lbl_ver.setVisible(visible);
+        self.auth_lbl.setVisible(visible)
+
+        self.btn_toggle.setText("☰ GGDesk" if visible else "☰")
+        if not is_collapsed:
+            self.btn_toggle.setStyleSheet("text-align: center; border: none; font-size: 14pt;")
+        else:
+            self.btn_toggle.setStyleSheet(
+                "text-align: left; font-weight: bold; font-size: 12pt; border: none; padding-left: 15px;")
+
+    @Slot(int)
+    def on_nav_clicked(self, idx):
+        self.stack.setCurrentIndex(idx)
+        if idx == 0:
+            self.page_quick.load_data()
+        elif idx == 1:
+            self.page_manage.load_data()
+
+    # 【Beta 7.3.1 修复】 找回了丢失的 show_about 函数
     def show_about(self):
         AboutDialog(self).exec()
 
-    @Slot(str)
-    def update_status(self, msg):
-        self.status_label.setText(msg)
-        self.progress.setVisible("扫描" in msg)
+    def check_first_run(self):
+        if self.config.getboolean('Settings', 'is_first_run', fallback=True): self.show_welcome_dialog(modal=True)
 
-    @Slot(str)
+    def show_welcome_dialog(self, modal=False):
+        welcome = WelcomeDialog(self)
+        if modal:
+            welcome.exec()
+        else:
+            welcome.show()
+        if welcome.chk_no_show.isChecked() and self.config.getboolean('Settings', 'is_first_run', fallback=True):
+            self.config['Settings']['is_first_run'] = 'false';
+            backend.save_config(self.config)
+
+    def update_status(self, msg):
+        self.status_label.setText(msg); self.progress.setVisible("扫描" in msg)
+
     def on_output_path_changed(self, path):
-        self.page_scan.update_path_hint(path)
+        if hasattr(self, 'page_scan'): self.page_scan.update_path_hint(path)
 
     def restore_geometry(self):
         geo = self.config.get('Settings', 'window_geometry', fallback='')
