@@ -1,23 +1,24 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QButtonGroup, QStackedWidget, QStatusBar, QProgressBar,
-    QFrame  # 新增引用
+    QFrame
 )
 from PySide6.QtCore import Qt, QSize, Slot
 import re
 import scanner_backend as backend
 
-# 导入各个页面
+# 导入页面
 from .page_scan import ScanPage
 from .page_output import OutputPage
-from .page_filter import FilterPage
+# 【Beta 5.0】 替换为新的 RulesPage
+from .page_rules import RulesPage
 from .page_settings import SettingsPage
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("快捷方式扫描器 (Beta 4.5 Experience)")
+        self.setWindowTitle("快捷方式扫描器 (Beta 5.0 Rules)")
         self.config = backend.load_config()
 
         self.build_ui()
@@ -25,7 +26,7 @@ class MainWindow(QMainWindow):
         self.restore_geometry()
 
         self.on_output_path_changed(self.page_output.out_edit.text())
-        self.page_settings.append_log("系统已就绪 (体验优化版)")
+        self.page_settings.append_log("系统已就绪 (规则引擎升级版)")
 
     def setup_statusbar(self):
         self.status_bar = QStatusBar();
@@ -70,35 +71,28 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QStyle
         add_nav("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 0).setChecked(True)
         add_nav("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 1)
-        add_nav("  过滤规则", QStyle.StandardPixmap.SP_MessageBoxWarning, 2)
+
+        # 【Beta 5.0】 重命名为 规则管理
+        add_nav("  规则管理", QStyle.StandardPixmap.SP_FileDialogListView, 2)
+
         add_nav("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 3)
 
-        # 【Beta 4.5 修复】 使用 addStretch(1) 将下方内容顶到底部
         sb_layout.addStretch(1)
-
-        # 分隔线
         line = QFrame();
         line.setFrameShape(QFrame.Shape.HLine);
         line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("border-color: #444444;")  # 弱化线条
-        sb_layout.addWidget(line)
+        line.setStyleSheet("border-color: #444444;");
+        sb_layout.addWidget(line);
         sb_layout.addSpacing(10)
-
-        # 归属信息 (增加底部边距)
-        ver_lbl = QLabel("Beta 4.5");
+        ver_lbl = QLabel("Beta 5.0");
         ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver_lbl.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
-
         auth_lbl = QLabel("By LceAn");
         auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")  # 稍微调大字体
-
-        sb_layout.addWidget(ver_lbl)
-        sb_layout.addWidget(auth_lbl)
-
-        # 额外的底部留白，防止贴底
+        auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")
+        sb_layout.addWidget(ver_lbl);
+        sb_layout.addWidget(auth_lbl);
         sb_layout.addSpacing(10)
-
         root_layout.addWidget(sidebar)
 
         # Content Pages
@@ -107,18 +101,18 @@ class MainWindow(QMainWindow):
 
         self.page_scan = ScanPage()
         self.page_output = OutputPage()
-        self.page_filter = FilterPage()
+        # 【Beta 5.0】 使用 RulesPage
+        self.page_rules = RulesPage()
         self.page_settings = SettingsPage()
 
         self.stack.addWidget(self.page_scan)
         self.stack.addWidget(self.page_output)
-        self.stack.addWidget(self.page_filter)
+        self.stack.addWidget(self.page_rules)
         self.stack.addWidget(self.page_settings)
 
         root_layout.addWidget(self.stack)
         self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
 
-        # Signals
         self.page_scan.sig_log.connect(self.page_settings.append_log)
         self.page_scan.sig_status.connect(self.update_status)
         self.page_output.sig_path_changed.connect(self.on_output_path_changed)
@@ -135,15 +129,14 @@ class MainWindow(QMainWindow):
     def restore_geometry(self):
         geo = self.config.get('Settings', 'window_geometry', fallback='')
         try:
-            w, h, x, y = map(int, re.split(r'[x+]', geo))
-            self.resize(QSize(w, h));
-            self.move(x, y)
+            w, h, x, y = map(int, re.split(r'[x+]', geo)); self.resize(QSize(w, h)); self.move(x, y)
         except:
             self.resize(950, 700)
 
     def closeEvent(self, e):
         self.page_scan.save_state()
         self.page_output.save_state()
+        # RulesPage 不需要 save_state，因为它的保存是手动的
         geo = self.geometry();
         self.config['Settings']['window_geometry'] = f"{geo.width()}x{geo.height()}+{geo.x()}+{geo.y()}"
         backend.save_config(self.config)
