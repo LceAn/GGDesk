@@ -1,71 +1,55 @@
-# GGDesk
-桌面快捷方式启动程序。
+# 🚀 GGDesk
 
-# 计划
-详情查看[未来规划](https://github.com/LceAn/GGDesk/blob/main/README/Roadmap.md)
+> **极简、智能的 Windows 桌面快捷方式启动与管理工具。** > *A Smart Desktop Shortcut Launcher & Manager.*
 
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![UI Framework](https://img.shields.io/badge/UI-PySide6-green.svg)](https://doc.qt.io/qtforpython/)
+[![Status](https://img.shields.io/badge/Status-Beta%206.0-orange.svg)](./README/UpdateLog.md)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+---
 
-# 更新记录
- - [251117]市面上的都不好看，也不好用，计划自己开发一个。
- - [251118]更新记录全部迁移到READM/updateLog里了。
- - 详情查看[更新记录](https://github.com/LceAn/GGDesk/blob/main/README/UpdateLog.md)
+## 📖 简介 (Introduction)
 
+**GGDesk** 旨在解决 Windows 用户在管理大量免安装程序（Portable Apps）时遇到的痛点。它不再强迫用户手动创建每一个快捷方式，而是通过智能扫描和算法，一键生成并管理你的桌面入口。
 
------
+### 🎯 解决痛点 (Pain Points Solved)
+1.  **免安装程序的噩梦**：下载了许多绿色版软件，文件夹层级深，每次都要手动发送快捷方式到桌面？GGDesk 可以一键扫描并自动生成。
+2.  **分类的繁琐性**：面对桌面上杂乱无章的图标感到头大？(🚧 *正在开发：借助 AI 自动化分类整理*)
+3.  **识别困难**：一个目录下有 `app.exe`, `uninstall.exe`, `update.exe`，不知道点哪个？GGDesk 的智能评分算法帮你自动锁定主程序。
 
-## 📂 项目结构 
+---
 
-GGDesk 采用**前后端分离**与**模块化**的设计架构。前端基于 PySide6 (Qt)，后端为纯 Python 逻辑，二者通过信号槽机制进行解耦。
+## ✨ 核心功能 (Features)
 
-```text
-GGDesk/
-├── main.py                         # 🚀 程序启动入口 (Entry Point)
-├── scanner_styles.py               # 🎨 UI 样式表定义 (QSS Theme Definitions)
-│
-├── config.ini                      # [自动生成] 用户配置文件 (User Configuration)
-├── blocklist.txt                   # [自动生成] 文件名黑名单 (Filename Blacklist)
-├── ignored_dirs.txt                # [自动生成] 目录黑洞列表 (Ignored Directories)
-│
-├── scanner_backend/                # 🧱 后端核心包 (Core Logic Package)
-│   ├── __init__.py                 # 接口封装 (Facade): 对外暴露统一调用接口
-│   ├── const.py                    # 常量定义: 默认配置、文件名常量
-│   ├── core_discovery.py           # 核心算法: 递归扫描、分词评分 (Smart Rank)、去重逻辑
-│   ├── manager_config.py           # 配置管理: INI 文件的读取与写入
-│   ├── manager_rules.py            # 规则管理: TXT 规则文件的加载与保存
-│   └── utils_system.py             # 系统工具: Windows API 调用 (快捷方式创建、UWP支持)
-│
-└── ui/                             # 🖥️ 前端界面包 (UI Package)
-    ├── __init__.py                 # 包标识
-    ├── main_window.py              # 主窗口: 侧边栏布局、页面堆栈调度、关于弹窗
-    ├── page_scan.py                # [核心页面] 扫描程序: 多源扫描控制、结果列表、详情修改弹窗
-    ├── page_rules.py               # [管理页面] 规则管理: 过滤策略、文件类型开关、黑名单编辑器
-    ├── page_output.py              # [管理页面] 生成路径: 输出目录选择、现有快捷方式预览
-    └── page_settings.py            # [设置页面] 系统设置: 主题切换、运行日志显示
-```
+* **🔍 全能扫描**：支持扫描 **自定义文件夹**、**系统开始菜单** 以及 **Microsoft Store (UWP)** 应用。
+* **🧠 智能评分算法**：基于分词匹配 (Token Matching) 和目录深度权重的算法，精准识别主程序 (如自动推荐 `idea64.exe` 而非 `launcher.exe`)。
+* **🛡️ 规则引擎**：
+    * **文件过滤**：支持黑名单、文件大小限制 (KB/MB)、扩展名筛选。
+    * **黑洞目录**：自动跳过 `node_modules`, `.git` 等无关目录，极速扫描。
+* **🎨 现代 UI**：基于 PySide6 的 Fluent 风格界面，支持 **暗黑/明亮** 主题切换。
+* **🚦 智能查重**：生成前自动检测目标路径下已存在的快捷方式，避免重复和覆盖。
 
------
+---
 
-### 🧩 模块职责说明
+## 📚 文档导航 (Documentation)
 
-#### **Backend (`scanner_backend/`)**
+为了保持根目录整洁，详细文档已归档至 `README/` 目录：
 
-后端模块不包含任何 UI 代码，专注于数据处理和系统交互，便于未来移植或测试。
+| 模块 | 说明 | 链接 |
+| :--- | :--- | :--- |
+| **🔮 未来规划** | 查看项目的后续开发计划、AI 集成路线图。 | [点击查看 Roadmap](./README/Roadmap.md) |
+| **📝 更新记录** | 查看从 Alpha 到 Beta 版本的详细迭代日志。 | [点击查看 UpdateLog](./README/UpdateLog.md) |
+| **📂 项目结构** | 了解前后端分离架构及各模块职责。 | [点击查看 ProjectStructure](./README/ProjectStructure.md) |
 
-| 文件名 | 职责描述 |
-| :--- | :--- |
-| **`core_discovery.py`** | **大脑**。包含 `discover_programs`（扫描主逻辑）和 `smart_rank_executables`（智能评分算法）。负责从文件系统中提取数据并清洗。 |
-| **`utils_system.py`** | **手脚**。负责底层操作，如创建 `.lnk` 快捷方式、解析 UWP `shell:AppsFolder`、调用资源管理器打开文件夹。 |
-| **`manager_config.py`** | **记忆**。负责 `config.ini` 的序列化与反序列化，确保用户设置（如窗口大小、上次路径）持久化。 |
-| **`manager_rules.py`** | **守卫**。负责读取和保存 `blocklist.txt` (黑名单) 和 `ignored_dirs.txt` (黑洞目录)。 |
+---
 
-#### **Frontend (`ui/`)**
+## 🛠️ 快速开始 (Quick Start)
 
-前端模块负责界面渲染和用户交互，通过 `ScanWorker` 线程调用后端，防止界面卡死。
+### 环境要求
+* Windows 10 / 11
+* Python 3.11+
 
-| 文件名 | 职责描述 |
-| :--- | :--- |
-| **`main_window.py`** | **骨架**。构建 Sidebar + StackedWidget 的主布局，处理全局信号（如状态栏更新、路径同步）。 |
-| **`page_scan.py`** | **交互核心**。包含扫描线程 (`QThread`)、结果展示树 (`QTreeWidget`) 和详情修改弹窗 (`RefineWindow`)。 |
-| **`page_rules.py`** | **控制台**。提供可视化的规则配置界面，支持文件类型勾选、大小阈值设定和规则列表编辑。 |
-| **`page_output.py`** | **预览器**。管理生成的快捷方式存放位置，并实时预览该目录下已存在的文件。 |
+### 安装依赖
+```bash
+pip install PySide6 pywin32
