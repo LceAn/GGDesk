@@ -1,7 +1,6 @@
 crashpad_handler.exe
 errorreporter.exe
 install.exe
-launch.exe
 report.exe
 setup.exe
 unins000.exe
