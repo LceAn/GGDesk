@@ -1,4 +1,18 @@
 ## 📝 完整更新日志
+### [2025-11-18] Beta 4.3.3 - 工程模块化重构 (Component Separation)
+
+**🧱 架构重构 (Architectural Overhaul)**
+
+  * **UI 组件拆分**: 将庞大的 `scanner_ui.py` 拆解为独立的模块，极大地提升了代码的可维护性和扩展性。
+      * `ui/page_scan.py`: 负责扫描逻辑、工作线程和详情弹窗。
+      * `ui/page_output.py`: 负责输出路径管理和现有快捷方式预览。
+      * `ui/page_filter.py`: 负责黑名单和忽略目录管理。
+      * `ui/page_settings.py`: 负责主题切换和日志显示。
+      * `ui/main_window.py`: 负责整体布局框架和页面间的信号调度。
+  * **信号驱动通信 (Signal-Driven)**: 页面之间不再直接调用（低耦合），而是通过 Signal/Slot 机制在 `MainWindow` 中进行消息转发（如：路径修改同步、日志记录）。
+
+**✨ 功能保持**: 保持了 Beta 4.3.2 的所有功能和修复，仅在代码结构层面进行了彻底的现代化改造。
+
 ### [2025-11-18] Beta 4.3 - 架构扩展与全选优化
 
 **🧱 架构扩展 (Architecture Expansion)**
