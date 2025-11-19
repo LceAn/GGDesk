@@ -215,7 +215,7 @@ class GenSuccessDialog(QDialog):
     def on_open(self): backend.open_file_explorer(self.output_path); self.accept()
 
 
-# --- 扫描页面类 (Beta 5.2) ---
+# --- 扫描页面类 (Beta 5.3) ---
 class ScanPage(QWidget):
     sig_log = Signal(str);
     sig_status = Signal(str)
@@ -235,13 +235,11 @@ class ScanPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30);
         layout.setSpacing(15)
 
-        # 【Beta 5.2 修复】 找回规则概览
         self.lbl_rules_summary = QLabel("规则加载中...")
         self.lbl_rules_summary.setStyleSheet(
             "background-color: #FFF8E1; color: #E65100; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; font-size: 9pt;")
         layout.addWidget(self.lbl_rules_summary)
 
-        # 扫描源选择
         src_group = QGroupBox("选择扫描范围")
         src_layout = QHBoxLayout(src_group)
         self.chk_start_menu = QCheckBox("开始菜单 (Start Menu)");
@@ -257,7 +255,6 @@ class ScanPage(QWidget):
         src_layout.addStretch()
         layout.addWidget(src_group)
 
-        # 自定义路径框
         self.path_box = QWidget()
         pb_layout = QHBoxLayout(self.path_box);
         pb_layout.setContentsMargins(0, 0, 0, 0)
@@ -277,7 +274,6 @@ class ScanPage(QWidget):
         layout.addWidget(self.btn_action);
         layout.addSpacing(5)
 
-        # 【Beta 5.2 修复】 找回操作提示栏
         info_frame = QFrame();
         info_frame.setObjectName("infoFrame")
         info_frame.setStyleSheet(
@@ -291,7 +287,6 @@ class ScanPage(QWidget):
         info_layout.addStretch()
         layout.addWidget(info_frame)
 
-        # 列表头
         header_frame = QHBoxLayout()
         self.chk_select_all = QCheckBox("全选列表")
         self.chk_select_all.stateChanged.connect(self.toggle_select_all)
@@ -302,7 +297,6 @@ class ScanPage(QWidget):
         header_frame.addWidget(self.lbl_count)
         layout.addLayout(header_frame)
 
-        # 列表 【Beta 5.2】 增加“来源”列
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名称', '推荐执行文件', '来源', '状态', '所在目录'])
         self.tree.setAlternatingRowColors(True);
@@ -311,7 +305,6 @@ class ScanPage(QWidget):
         self.tree.itemChanged.connect(self.on_tree_item_changed)
         layout.addWidget(self.tree)
 
-        # 底部生成区
         footer_layout = QVBoxLayout();
         footer_layout.setSpacing(5)
         self.lbl_path_hint = QLabel("")
@@ -329,6 +322,7 @@ class ScanPage(QWidget):
         last = self.config.get('Settings', 'last_scan_path', fallback='')
         if last: self.path_edit.setText(last)
 
+    # 【Beta 5.3 修复】 确保能正确读取和显示所有规则
     def update_rules_summary(self):
         conf = backend.load_config();
         rules = conf['Rules']
@@ -338,7 +332,9 @@ class ScanPage(QWidget):
         if rules.getboolean('enable_size_filter', False):
             summary.append(f"大小({rules.get('min_size_kb')}K-{rules.get('max_size_mb')}M)")
         exts = rules.get('target_extensions', '.exe')
-        summary.append(f"类型({exts})")
+        if exts != '.exe': summary.append(f"类型({exts})")
+        if rules.getboolean('enable_deduplication', True): summary.append("智能去重✅")
+
         self.lbl_rules_summary.setText("当前规则: " + " | ".join(summary) if summary else "当前规则: 无限制")
 
     def toggle_custom_path(self, checked):
@@ -444,6 +440,12 @@ class ScanPage(QWidget):
         conf = backend.load_config()
         out_path = conf.get('Settings', 'output_path', fallback='').strip()
         if not out_path: out_path = os.path.join(os.path.expanduser('~'), 'Desktop', backend.DEFAULT_OUTPUT_FOLDER_NAME)
+
+        # 【Beta 5.3】 读取默认勾选策略
+        rules = conf['Rules']
+        check_new = rules.getboolean('default_check_new', True)
+        check_exist = rules.getboolean('default_check_existing', False)
+
         existing_shortcuts = {}
         if os.path.exists(out_path):
             raw_list = backend.scan_existing_shortcuts(out_path)
@@ -461,15 +463,15 @@ class ScanPage(QWidget):
 
             status_text = "🆕 新增";
             status_tooltip = "新发现的程序";
-            status_color = "#2E8B57";
-            check_state = Qt.CheckState.Checked
+            status_color = "#2E8B57"
+            check_state = Qt.CheckState.Checked if check_new else Qt.CheckState.Unchecked
+
             if norm_target in existing_shortcuts:
                 status_text = "✅ 已存在";
                 status_tooltip = f"快捷方式已存在";
-                status_color = "#888888";
-                check_state = Qt.CheckState.Unchecked
+                status_color = "#888888"
+                check_state = Qt.CheckState.Checked if check_exist else Qt.CheckState.Unchecked
 
-                # 【Beta 5.2】 来源显示逻辑
             source_map = {'start_menu': '开始菜单', 'uwp': '应用商店', 'custom': '自定义'}
             source_text = source_map.get(p.get('type', 'custom'), '未知')
 
@@ -478,8 +480,8 @@ class ScanPage(QWidget):
             item.setToolTip(4, p['root_path'])
             item.setForeground(3, QBrush(QColor(status_color)));
             item.setToolTip(3, status_tooltip)
-            item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)  # 状态居中
-            item.setForeground(2, QBrush(QColor("#005FB8")))  # 来源列用蓝色
+            item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
+            item.setForeground(2, QBrush(QColor("#005FB8")))
 
             if p.get('type') != 'uwp' and target:
                 item.setIcon(1, self.icon_provider.icon(QFileInfo(target)));

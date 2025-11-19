@@ -7,42 +7,35 @@ from PySide6.QtCore import Qt
 import scanner_backend as backend
 
 
-# --- 通用文本编辑弹窗 (保持不变) ---
 class ListEditDialog(QDialog):
     def __init__(self, parent, title, data_set, help_text):
         super().__init__(parent)
-        self.setWindowTitle(title)
+        self.setWindowTitle(title);
         self.resize(500, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self);
         layout.addWidget(QLabel(help_text))
-
-        self.editor = QTextEdit()
-        self.editor.setPlainText("\n".join(sorted(data_set)))
+        self.editor = QTextEdit();
+        self.editor.setPlainText("\n".join(sorted(data_set)));
         layout.addWidget(self.editor)
-
         btn_box = QHBoxLayout()
-        btn_save = QPushButton("保存并关闭")
-        btn_save.setObjectName("primaryButton")
+        btn_save = QPushButton("保存并关闭");
+        btn_save.setObjectName("primaryButton");
         btn_save.clicked.connect(self.accept)
-        btn_cancel = QPushButton("取消")
+        btn_cancel = QPushButton("取消");
         btn_cancel.clicked.connect(self.reject)
         btn_box.addStretch();
         btn_box.addWidget(btn_save);
-        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_cancel);
         layout.addLayout(btn_box)
 
-    def get_data(self):
-        text = self.editor.toPlainText()
-        return {line.strip() for line in text.split('\n') if line.strip()}
+    def get_data(self): return {line.strip() for line in self.editor.toPlainText().split('\n') if line.strip()}
 
 
 class RulesPage(QWidget):
     def __init__(self):
         super().__init__()
         self.config = backend.load_config()
-        # 加载列表数据
         self.blocklist, _ = backend.load_blocklist()
         self.ignored_dirs, _ = backend.load_ignored_dirs()
         self.build_ui()
@@ -52,55 +45,44 @@ class RulesPage(QWidget):
         layout = QVBoxLayout(self);
         layout.setContentsMargins(30, 30, 30, 30);
         layout.setSpacing(20)
-
         layout.addWidget(QLabel("🛡️ 扫描规则配置"), 0, Qt.AlignmentFlag.AlignBottom)
 
-        # --- 【Beta 5.1.1 修正】 移除了“扫描范围”组，因为已移动至扫描首页 ---
-
-        # --- 1. 文件类型 (原序号2) ---
-        g_ext = QGroupBox("目标文件类型 (Target Extensions)")
+        # 1. 文件类型
+        g_ext = QGroupBox("目标文件类型")
         l_ext = QHBoxLayout(g_ext)
-
-        self.chk_exe = QCheckBox("*.exe (可执行程序)")
-        self.chk_exe.setChecked(True)  # 默认必须有
-        self.chk_exe.setEnabled(False)  # 强制开启
+        self.chk_exe = QCheckBox("*.exe");
+        self.chk_exe.setChecked(True);
+        self.chk_exe.setEnabled(False);
         l_ext.addWidget(self.chk_exe)
-
-        self.chk_bat = QCheckBox("*.bat / *.cmd (脚本)")
-        self.chk_bat.setEnabled(False)  # 预留
+        self.chk_bat = QCheckBox("*.bat (Beta 6)");
+        self.chk_bat.setEnabled(False);
         l_ext.addWidget(self.chk_bat)
-
-        self.chk_lnk = QCheckBox("*.lnk (快捷方式)")
-        self.chk_lnk.setEnabled(False)  # 预留
+        self.chk_lnk = QCheckBox("*.lnk (Beta 6)");
+        self.chk_lnk.setEnabled(False);
         l_ext.addWidget(self.chk_lnk)
-
-        l_ext.addStretch()
+        l_ext.addStretch();
         layout.addWidget(g_ext)
 
-        # --- 2. 过滤规则 (原序号3) ---
-        g_filter = QGroupBox("过滤规则 (Filter Rules)")
+        # 2. 过滤规则
+        g_filter = QGroupBox("过滤规则")
         l_filter = QVBoxLayout(g_filter);
         l_filter.setSpacing(15)
 
-        # 2.1 大小过滤
         row_size = QHBoxLayout()
-        self.chk_size = QCheckBox("启用文件大小过滤")
-        self.chk_size.toggled.connect(self.toggle_size_inputs)
+        self.chk_size = QCheckBox("启用大小过滤");
+        self.chk_size.toggled.connect(self.toggle_size_inputs);
         row_size.addWidget(self.chk_size)
-
-        row_size.addWidget(QLabel("  最小:"))
+        row_size.addWidget(QLabel("  最小:"));
         self.spin_min = QSpinBox();
         self.spin_min.setSuffix(" KB");
-        self.spin_min.setRange(0, 99999)
+        self.spin_min.setRange(0, 99999);
         row_size.addWidget(self.spin_min)
-
-        row_size.addWidget(QLabel("  最大:"))
+        row_size.addWidget(QLabel("  最大:"));
         self.spin_max = QSpinBox();
         self.spin_max.setSuffix(" MB");
-        self.spin_max.setRange(1, 99999)
+        self.spin_max.setRange(1, 99999);
         row_size.addWidget(self.spin_max)
-
-        row_size.addStretch()
+        row_size.addStretch();
         l_filter.addLayout(row_size)
 
         line = QFrame();
@@ -108,62 +90,76 @@ class RulesPage(QWidget):
         line.setFrameShadow(QFrame.Shadow.Sunken);
         l_filter.addWidget(line)
 
-        # 2.2 黑名单
-        row_blk = QHBoxLayout()
-        self.chk_blk = QCheckBox("启用文件名黑名单 (Blacklist)")
+        row_blk = QHBoxLayout();
+        self.chk_blk = QCheckBox("启用黑名单");
         row_blk.addWidget(self.chk_blk)
-        btn_blk = QPushButton("📄 查看/编辑详情");
-        btn_blk.clicked.connect(self.edit_blacklist)
+        btn_blk = QPushButton("📄 编辑黑名单");
+        btn_blk.clicked.connect(self.edit_blacklist);
         row_blk.addStretch();
-        row_blk.addWidget(btn_blk)
+        row_blk.addWidget(btn_blk);
         l_filter.addLayout(row_blk)
 
-        # 2.3 黑洞目录
-        row_ign = QHBoxLayout()
-        self.chk_ign = QCheckBox("启用黑洞目录跳过 (Ignore Dirs)")
+        row_ign = QHBoxLayout();
+        self.chk_ign = QCheckBox("启用目录跳过");
         row_ign.addWidget(self.chk_ign)
-        btn_ign = QPushButton("📂 查看/编辑详情");
-        btn_ign.clicked.connect(self.edit_ignored)
+        btn_ign = QPushButton("📂 编辑黑洞目录");
+        btn_ign.clicked.connect(self.edit_ignored);
         row_ign.addStretch();
-        row_ign.addWidget(btn_ign)
+        row_ign.addWidget(btn_ign);
         l_filter.addLayout(row_ign)
-
         layout.addWidget(g_filter)
 
-        # 保存按钮
+        # 3. 【Beta 5.3】 高级策略
+        g_adv = QGroupBox("高级策略 (Behavior)")
+        l_adv = QVBoxLayout(g_adv)
+
+        self.chk_dedup = QCheckBox("智能去重：合并 StartMenu/UWP/Custom 中同名的程序")
+        l_adv.addWidget(self.chk_dedup)
+
+        l_adv.addWidget(QLabel("扫描结果默认勾选状态:"))
+        h_def = QHBoxLayout()
+        self.chk_def_new = QCheckBox("默认勾选 [🆕 新增] 程序")
+        self.chk_def_exi = QCheckBox("默认勾选 [✅ 已存在] 程序")
+        h_def.addWidget(self.chk_def_new);
+        h_def.addWidget(self.chk_def_exi);
+        h_def.addStretch()
+        l_adv.addLayout(h_def)
+
+        layout.addWidget(g_adv)
+
+        # Save
         layout.addStretch()
-        btn_save = QPushButton("💾 保存所有规则配置");
-        btn_save.setObjectName("primaryButton")
+        btn_save = QPushButton("💾 保存所有配置");
+        btn_save.setObjectName("primaryButton");
         btn_save.clicked.connect(self.save_config)
         layout.addWidget(btn_save, 0, Qt.AlignmentFlag.AlignRight)
 
     def toggle_size_inputs(self, checked):
-        self.spin_min.setEnabled(checked)
+        self.spin_min.setEnabled(checked);
         self.spin_max.setEnabled(checked)
 
     def load_ui_states(self):
         rules = self.config['Rules']
         self.chk_blk.setChecked(rules.getboolean('enable_blacklist', True))
         self.chk_ign.setChecked(rules.getboolean('enable_ignored_dirs', True))
-
         size_on = rules.getboolean('enable_size_filter', False)
-        self.chk_size.setChecked(size_on)
+        self.chk_size.setChecked(size_on);
         self.toggle_size_inputs(size_on)
-
         self.spin_min.setValue(rules.getint('min_size_kb', 0))
         self.spin_max.setValue(rules.getint('max_size_mb', 500))
 
+        # 【Beta 5.3】
+        self.chk_dedup.setChecked(rules.getboolean('enable_deduplication', True))
+        self.chk_def_new.setChecked(rules.getboolean('default_check_new', True))
+        self.chk_def_exi.setChecked(rules.getboolean('default_check_existing', False))
+
     def edit_blacklist(self):
-        dlg = ListEditDialog(self, "编辑文件名黑名单", self.blocklist, "跳过包含以下关键词的文件 (不区分大小写):")
-        if dlg.exec():
-            self.blocklist = dlg.get_data()
-            backend.save_blocklist(self.blocklist)
+        dlg = ListEditDialog(self, "编辑文件名黑名单", self.blocklist, "每行一个关键词:")
+        if dlg.exec(): self.blocklist = dlg.get_data(); backend.save_blocklist(self.blocklist)
 
     def edit_ignored(self):
-        dlg = ListEditDialog(self, "编辑黑洞目录", self.ignored_dirs, "完全跳过以下目录名称 (精确匹配):")
-        if dlg.exec():
-            self.ignored_dirs = dlg.get_data()
-            backend.save_ignored_dirs(self.ignored_dirs)
+        dlg = ListEditDialog(self, "编辑黑洞目录", self.ignored_dirs, "每行一个目录名:")
+        if dlg.exec(): self.ignored_dirs = dlg.get_data(); backend.save_ignored_dirs(self.ignored_dirs)
 
     def save_config(self):
         rules = self.config['Rules']
@@ -173,5 +169,10 @@ class RulesPage(QWidget):
         rules['min_size_kb'] = str(self.spin_min.value())
         rules['max_size_mb'] = str(self.spin_max.value())
 
+        # 【Beta 5.3】
+        rules['enable_deduplication'] = str(self.chk_dedup.isChecked())
+        rules['default_check_new'] = str(self.chk_def_new.isChecked())
+        rules['default_check_existing'] = str(self.chk_def_exi.isChecked())
+
         backend.save_config(self.config)
-        QMessageBox.information(self, "完成", "规则配置已更新，将在下次扫描时生效。")
+        QMessageBox.information(self, "完成", "配置已保存。")

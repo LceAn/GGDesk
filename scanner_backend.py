@@ -10,6 +10,19 @@ CONFIG_FILE = "config.ini"
 FILENAME_BLOCKLIST = "blocklist.txt"
 FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
 
+# 【Beta 5.3】 新增配置项
+DEFAULT_CONFIG = {
+    'enable_blacklist': 'true',
+    'enable_ignored_dirs': 'true',
+    'enable_size_filter': 'false',
+    'min_size_kb': '0',
+    'max_size_mb': '500',
+    'target_extensions': '.exe',
+    'enable_deduplication': 'true',  # 是否合并重复名称的程序
+    'default_check_new': 'true',  # 新发现程序默认勾选
+    'default_check_existing': 'false'  # 已存在程序默认不勾选
+}
+
 DEFAULT_BLOCKLIST = {
     'uninstall.exe', 'unins000.exe', 'unins001.exe', 'unins002.exe',
     'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
@@ -83,12 +96,12 @@ def _load_set_from_file(filename, default_set):
             with open(filename, 'r') as f:
                 for line in f:
                     if line.strip(): result_set.add(line.strip())
-            return result_set, f"加载 {len(result_set)} 条规则"
-        except:
-            return result_set, "加载失败"
+            return result_set, f"从 {filename} 加载规则。"
+        except Exception as e:
+            return result_set, f"加载 {filename} 失败: {e}"
     else:
         _save_set_to_file(filename, result_set)
-        return result_set, "创建默认规则"
+        return result_set, f"已创建默认规则: {filename}。"
 
 
 def _save_set_to_file(filename, data_set):
@@ -119,6 +132,11 @@ def load_config():
     if os.path.exists(CONFIG_FILE): config.read(CONFIG_FILE, encoding='utf-8')
     if 'Settings' not in config: config['Settings'] = {}
     if 'Rules' not in config: config['Rules'] = {}
+
+    # 填充缺失的默认值
+    for k, v in DEFAULT_CONFIG.items():
+        if k not in config['Rules']: config['Rules'][k] = v
+
     return config
 
 
@@ -131,17 +149,13 @@ def save_config(config):
 
 
 # --- 5. 扫描源实现 ---
-
-# 【Beta 5.2 修复】 增加 blocklist 参数，进行过滤
 def scan_start_menu(blocklist):
-    """扫描开始菜单中的快捷方式，并应用黑名单"""
     paths = [
         os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
         os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')
     ]
     results = []
     shell = win32com.client.Dispatch("WScript.Shell")
-
     for p in paths:
         if not os.path.exists(p): continue
         for root, _, files in os.walk(p):
@@ -152,43 +166,26 @@ def scan_start_menu(blocklist):
                         sc = shell.CreateShortCut(full_path)
                         target = sc.TargetPath
                         if target.lower().endswith('.exe'):
-                            # 【核心修复】 检查目标文件是否在黑名单中
                             exe_name = os.path.basename(target).lower()
-                            if exe_name in blocklist:
-                                continue  # 跳过黑名单程序
-
-                            results.append({
-                                'name': os.path.splitext(f)[0],
-                                'path': target,
-                                'root': root,
-                                'type': 'start_menu'
-                            })
+                            if exe_name in blocklist: continue
+                            results.append(
+                                {'name': os.path.splitext(f)[0], 'path': target, 'root': root, 'type': 'start_menu'})
                     except:
                         pass
     return results
 
 
 def scan_uwp_apps(blocklist):
-    """扫描 UWP 应用"""
     results = []
     try:
         shell = win32com.client.Dispatch("Shell.Application")
         apps_folder = shell.NameSpace("shell:AppsFolder")
         if not apps_folder: return []
-
         for item in apps_folder.Items():
-            name = item.Name
+            name = item.Name;
             path = item.Path
             if name and path:
-                # UWP 没有 .exe 后缀，直接匹配名称是否包含黑名单关键词 (可选)
-                # 这里简单处理：如果名称完全匹配黑名单（去掉后缀），则过滤
-                # 但通常 UWP 不会有 uninstall.exe 这种东西
-                results.append({
-                    'name': name,
-                    'path': path,
-                    'root': "Microsoft Store",
-                    'type': 'uwp'
-                })
+                results.append({'name': name, 'path': path, 'root': "Microsoft Store", 'type': 'uwp'})
     except:
         pass
     return results
@@ -226,41 +223,38 @@ def smart_rank_executables(program_name, exe_paths, root_path):
 
 
 def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
-    final_results = []
+    conf = load_config()
+    rules = conf['Rules']
 
-    # 1. 开始菜单 (传入 blocklist)
+    # 【Beta 5.3】 读取去重配置
+    enable_dedup = rules.getboolean('enable_deduplication', True)
+    seen_names = set()  # 用于去重
+
+    raw_results = []
+
+    # 1. Start Menu
     if 'start_menu' in sources:
-        log_callback("--- 正在扫描系统开始菜单 ---")
-        sm_items = scan_start_menu(blocklist)
-        log_callback(f"  -> 发现 {len(sm_items)} 个快捷方式")
-        for item in sm_items:
-            final_results.append({
-                'name': item['name'],
-                'root_path': item['root'],
-                'all_exes': [],
-                'selected_exes': (item['path'],),
-                'type': 'start_menu'
-            })
+        log_callback("--- 扫描: 系统开始菜单 ---")
+        items = scan_start_menu(blocklist)
+        log_callback(f"  -> 发现 {len(items)} 个快捷方式")
+        for item in items:
+            raw_results.append(
+                {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
+                 'type': 'start_menu'})
 
     # 2. UWP
     if 'uwp' in sources:
-        log_callback("--- 正在扫描 Microsoft Store 应用 (UWP) ---")
-        uwp_items = scan_uwp_apps(blocklist)
-        log_callback(f"  -> 发现 {len(uwp_items)} 个应用")
-        for item in uwp_items:
-            final_results.append({
-                'name': item['name'],
-                'root_path': "UWP / System",
-                'all_exes': [],
-                'selected_exes': (item['path'],),
-                'type': 'uwp'
-            })
+        log_callback("--- 扫描: Microsoft Store ---")
+        items = scan_uwp_apps(blocklist)
+        log_callback(f"  -> 发现 {len(items)} 个应用")
+        for item in items:
+            raw_results.append(
+                {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
+                 'type': 'uwp'})
 
-    # 3. 自定义文件夹
+    # 3. Custom
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
-        log_callback(f"--- 正在扫描自定义文件夹: {custom_path} ---")
-        conf = load_config()
-        rules = conf['Rules']
+        log_callback(f"--- 扫描: 自定义文件夹 {custom_path} ---")
         use_size = rules.getboolean('enable_size_filter', False)
         min_kb = rules.getint('min_size_kb', 0) * 1024
         max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
@@ -268,9 +262,8 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
 
         exe_folders = defaultdict(list);
         all_exes_data = {}
-
         for root, dirs, files in os.walk(custom_path, topdown=True):
-            if check_stop_callback and check_stop_callback(): return final_results
+            if check_stop_callback and check_stop_callback(): return []
             ignored_lower = {d.lower() for d in ignored_dirs}
             dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
@@ -280,10 +273,7 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 for ext in exts:
                     if file.lower().endswith(ext): is_target = True; break
                 if not is_target: continue
-
-                # 黑名单检查
                 if file.lower() in blocklist: continue
-
                 try:
                     full_path = os.path.join(root, file)
                     size = os.path.getsize(full_path)
@@ -325,9 +315,23 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
             name = program_roots[root]
             ranked_exes = smart_rank_executables(name, exe_paths, root)
             selected = tuple([ranked_exes[0]]) if ranked_exes else ()
-            prog_data = {'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
-                         'selected_exes': selected, 'type': 'custom'}
-            final_results.append(prog_data)
+            raw_results.append({'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
+                                'selected_exes': selected, 'type': 'custom'})
 
-    log_callback(f"扫描完成，共汇总 {len(final_results)} 个结果。")
+    # 【Beta 5.3】 执行去重
+    final_results = []
+    if enable_dedup:
+        log_callback("正在智能去重...")
+        for item in raw_results:
+            # 使用小写名称进行比较
+            name_key = item['name'].lower()
+            if name_key in seen_names:
+                # log_callback(f"  [去重] 跳过重复程序: {item['name']}")
+                continue
+            seen_names.add(name_key)
+            final_results.append(item)
+    else:
+        final_results = raw_results
+
+    log_callback(f"处理完成，有效结果 {len(final_results)} 个。")
     return sorted(final_results, key=lambda p: p['name'])
