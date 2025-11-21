@@ -1,54 +1,58 @@
-# scanner_backend/core_discovery.py
 import os
 import re
 import win32com.client
 from collections import defaultdict
 from .manager_config import load_config
+from .const import BAD_PATH_KEYWORDS
+from .core_dedup import deduplicate_programs  # 导入去重模块
+
+
+# --- 辅助判断 ---
+def is_junk_path(path):
+    path_lower = path.lower()
+    folder_name = os.path.basename(path_lower)
+    for kw in BAD_PATH_KEYWORDS:
+        if kw in path_lower: return True
+    if len(folder_name) > 20 and re.search(r'\d', folder_name) and re.search(r'[a-z]',
+                                                                             folder_name) and ' ' not in folder_name:
+        return True
+    return False
 
 
 # --- 扫描源实现 ---
 def scan_start_menu(blocklist):
-    paths = [
-        os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
-        os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')
-    ]
-    results = []
+    paths = [os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
+             os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')]
     shell = win32com.client.Dispatch("WScript.Shell")
     for p in paths:
         if not os.path.exists(p): continue
         for root, _, files in os.walk(p):
             for f in files:
                 if f.lower().endswith('.lnk'):
-                    full_path = os.path.join(root, f)
                     try:
-                        sc = shell.CreateShortCut(full_path)
-                        target = sc.TargetPath
+                        target = shell.CreateShortCut(os.path.join(root, f)).TargetPath
                         if target.lower().endswith('.exe'):
-                            if os.path.basename(target).lower() in blocklist: continue
-                            results.append(
-                                {'name': os.path.splitext(f)[0], 'path': target, 'root': root, 'type': 'start_menu'})
+                            if os.path.basename(target).lower() not in blocklist:
+                                yield {'name': os.path.splitext(f)[0], 'path': target, 'root': root,
+                                       'type': 'start_menu'}
                     except:
                         pass
-    return results
 
 
 def scan_uwp_apps(blocklist):
-    results = []
     try:
         shell = win32com.client.Dispatch("Shell.Application")
-        apps_folder = shell.NameSpace("shell:AppsFolder")
-        if not apps_folder: return []
-        for item in apps_folder.Items():
-            name = item.Name;
-            path = item.Path
-            if name and path:
-                results.append({'name': name, 'path': path, 'root': "Microsoft Store", 'type': 'uwp'})
+        apps = shell.NameSpace("shell:AppsFolder")
+        if apps:
+            for item in apps.Items():
+                if item.Name and item.Path:
+                    if item.Name.lower() + ".exe" not in blocklist:
+                        yield {'name': item.Name, 'path': item.Path, 'root': "Microsoft Store", 'type': 'uwp'}
     except:
         pass
-    return results
 
 
-# --- 智能评分 ---
+# --- 智能评分 (Beta 7.4 Logic) ---
 def smart_rank_executables(program_name, exe_paths, root_path):
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
@@ -71,60 +75,61 @@ def smart_rank_executables(program_name, exe_paths, root_path):
         if filename.endswith('.exe'): score += 5
         rel_path = os.path.relpath(path, root_path)
         score -= (rel_path.count(os.path.sep) * 15)
-        negative_keywords = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler',
-                             'uninstall', 'eula']
-        for kw in negative_keywords:
+        neg = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler', 'uninstall',
+               'eula']
+        for kw in neg:
             if kw in name_no_ext: score -= 100
         scored_list.append((score, path))
     scored_list.sort(key=lambda x: x[0], reverse=True)
     return [x[1] for x in scored_list]
 
 
-# --- 主扫描入口 ---
-def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callback, check_stop_callback=None):
+# --- 主生成器 (修复版) ---
+def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, check_stop_callback=None):
     conf = load_config()
     rules = conf['Rules']
-    enable_dedup = rules.getboolean('enable_deduplication', True)
     enable_smart_root = rules.getboolean('enable_smart_root', True)
+    enable_dedup = rules.getboolean('enable_deduplication', True)
+    use_size = rules.getboolean('enable_size_filter', False)
+    min_kb = rules.getint('min_size_kb', 0) * 1024
+    max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
+    exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
 
-    seen_names = set()
-    raw_results = []
+    # 临时存储列表，用于去重
+    all_found_items = []
 
     # 1. Start Menu
     if 'start_menu' in sources:
-        log_callback("--- 扫描: 系统开始菜单 ---")
-        items = scan_start_menu(blocklist)
-        log_callback(f"  -> 发现 {len(items)} 个快捷方式")
-        for item in items:
-            raw_results.append(
-                {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
-                 'type': 'start_menu'})
+        for item in scan_start_menu(blocklist):
+            if check_stop_callback and check_stop_callback(): return
+            res = {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
+                   'type': 'start_menu'}
+            all_found_items.append(res)
+            if not enable_dedup: yield res  # 如果不去重，直接抛出
 
     # 2. UWP
     if 'uwp' in sources:
-        log_callback("--- 扫描: Microsoft Store ---")
-        items = scan_uwp_apps(blocklist)
-        log_callback(f"  -> 发现 {len(items)} 个应用")
-        for item in items:
-            raw_results.append(
-                {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
-                 'type': 'uwp'})
+        for item in scan_uwp_apps(blocklist):
+            if check_stop_callback and check_stop_callback(): return
+            res = {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
+                   'type': 'uwp'}
+            all_found_items.append(res)
+            if not enable_dedup: yield res
 
-    # 3. Custom Path
+    # 3. Custom Path (回归 Beta 7.4 的逻辑，修复自定义扫描失效问题)
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
-        log_callback(f"--- 扫描: 自定义文件夹 {custom_path} ---")
-        use_size = rules.getboolean('enable_size_filter', False)
-        min_kb = rules.getint('min_size_kb', 0) * 1024
-        max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
-        exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
-
-        exe_folders = defaultdict(list);
+        ignored_lower = {d.lower() for d in ignored_dirs}
+        exe_folders = defaultdict(list)
         all_exes_data = {}
         flat_files = []
 
+        # 遍历
         for root, dirs, files in os.walk(custom_path, topdown=True):
-            if check_stop_callback and check_stop_callback(): return []
-            ignored_lower = {d.lower() for d in ignored_dirs}
+            if check_stop_callback and check_stop_callback(): return
+
+            if is_junk_path(root):
+                dirs[:] = []
+                continue
             dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
             current_exes = []
@@ -132,23 +137,25 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
                 is_target = False
                 for ext in exts:
                     if file.lower().endswith(ext): is_target = True; break
-                if not is_target: continue
-                if file.lower() in blocklist: continue
+                if not is_target or file.lower() in blocklist: continue
+
                 try:
-                    full_path = os.path.join(root, file)
-                    size = os.path.getsize(full_path)
-                    if use_size and (size < min_kb or size > max_mb): continue
+                    full = os.path.join(root, file)
+                    sz = os.path.getsize(full)
+                    if use_size and (sz < min_kb or sz > max_mb): continue
 
-                    current_exes.append(full_path)
-                    all_exes_data[full_path] = (full_path, file, size, os.path.relpath(root, custom_path))
-
-                    if not enable_smart_root: flat_files.append(full_path)
+                    current_exes.append(full)
+                    all_exes_data[full] = (full, file, sz, os.path.relpath(root, custom_path))
+                    if not enable_smart_root: flat_files.append(full)
                 except:
                     pass
 
             if enable_smart_root and current_exes: exe_folders[root] = current_exes
 
+        # 处理逻辑：智能分组 vs 平铺
+        custom_results = []
         if enable_smart_root:
+            # 排序并找到顶层目录 (Key Logic restored from Beta 7.4)
             sorted_folders = sorted(exe_folders.keys())
             top_level_folders = []
             if sorted_folders:
@@ -160,6 +167,7 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
             program_groups = defaultdict(list);
             program_roots = {}
             for folder in top_level_folders:
+                # 处理 bin 目录回溯
                 name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
                     folder).lower() == 'bin' else os.path.basename(folder)
                 root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
@@ -178,31 +186,29 @@ def discover_programs(sources, custom_path, blocklist, ignored_dirs, log_callbac
 
             for root, exe_paths in program_groups.items():
                 name = program_roots[root]
-                ranked_exes = smart_rank_executables(name, exe_paths, root)
-                selected = tuple([ranked_exes[0]]) if ranked_exes else ()
-                raw_results.append(
-                    {'name': name, 'root_path': root, 'all_exes': [all_exes_data[p] for p in ranked_exes],
-                     'selected_exes': selected, 'type': 'custom'})
+                ranked = smart_rank_executables(name, exe_paths, root)
+                sel = tuple([ranked[0]]) if ranked else ()
+                # 构造详细数据
+                details = [all_exes_data[p] for p in ranked]
+                custom_results.append(
+                    {'name': name, 'root_path': root, 'all_exes': details, 'selected_exes': sel, 'type': 'custom'})
         else:
+            # 平铺模式
             for path in flat_files:
-                name = os.path.splitext(os.path.basename(path))[0]
-                raw_results.append({
-                    'name': name,
+                custom_results.append({
+                    'name': os.path.splitext(os.path.basename(path))[0],
                     'root_path': os.path.dirname(path),
                     'all_exes': [],
                     'selected_exes': (path,),
                     'type': 'custom'
                 })
 
-    final_results = []
-    if enable_dedup:
-        for item in raw_results:
-            name_key = item['name'].lower()
-            if name_key in seen_names: continue
-            seen_names.add(name_key)
-            final_results.append(item)
-    else:
-        final_results = raw_results
+        all_found_items.extend(custom_results)
+        if not enable_dedup:
+            for res in custom_results: yield res
 
-    log_callback(f"扫描完成，共汇总 {len(final_results)} 个结果。")
-    return sorted(final_results, key=lambda p: p['name'])
+    # 4. 执行去重并 Yield (如果开启了去重)
+    if enable_dedup:
+        deduplicated = deduplicate_programs(all_found_items)
+        for item in deduplicated:
+            yield item

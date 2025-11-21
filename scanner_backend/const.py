@@ -22,17 +22,35 @@ DEFAULT_CONFIG = {
     'enable_smart_root': 'true',
     'is_first_run': 'true',
 
-    # 【Beta 7.2 新增】 视觉与排序配置
-    'launcher_icon_size': '72',  # 图标大小 (px)
-    'launcher_show_badges': 'true',  # 是否显示来源角标 (暂未实装绘制逻辑，先留开关)
-    'launcher_sort_by': 'name',  # name (名称), count (频率), added (时间)
-    'sidebar_collapsed': 'false'  # 侧边栏折叠状态
+    # 视觉配置
+    'launcher_icon_size': '72',
+    'launcher_show_badges': 'true',
+    'launcher_sort_by': 'name',
+    'sidebar_collapsed': 'false'
 }
 
-# ... (Blocklist 和 Ignored Dirs 保持不变)
-DEFAULT_BLOCKLIST = {'uninstall.exe', 'unins000.exe', 'setup.exe', 'install.exe', 'update.exe', 'updater.exe',
-                     'crashpad_handler.exe', 'errorreporter.exe', 'report.exe', 'config.exe', 'splash.exe',
-                     'unitycrashhandler64.exe'}
-DEFAULT_IGNORED_DIRS = {'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__', 'venv', 'env', 'dist',
-                        'build', 'tmp', 'temp', 'jbr', 'jre', 'lib', 'plugins', 'Windows', 'ProgramData',
-                        '$RECYCLE.BIN', 'System Volume Information'}
+# 文件名黑名单
+DEFAULT_BLOCKLIST = {
+    'uninstall.exe', 'unins000.exe', 'unins001.exe', 'setup.exe', 'install.exe',
+    'update.exe', 'updater.exe', 'config.exe', 'splash.exe',
+    'crashpad_handler.exe', 'errorreporter.exe', 'report.exe',
+    'unitycrashhandler64.exe', 'nwjc.exe', 'chromedriver.exe',
+    'netcorecheck.exe', 'vcredist_x64.exe', 'vcredist_x86.exe',
+    'elevate.exe', 'runner.exe', 'notification_helper.exe'
+}
+
+# 【Beta 8.1.1 修复】 移除 'bin', 'lib', 'dist' 等可能包含主程序的目录
+DEFAULT_IGNORED_DIRS = {
+    'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
+    'venv', 'env', 'tmp', 'temp', 'cache', 'logs',
+    'jbr', 'jre', 'obj', 'properties', 'runtimes', 'packages',
+    'Windows', 'ProgramData', '$RECYCLE.BIN', 'System Volume Information',
+    'Microsoft Visual Studio', 'Common7', 'MSBuild'
+}
+
+# 路径关键词过滤 (包含即跳过)
+BAD_PATH_KEYWORDS = [
+    'runtime', 'framework', 'redist', 'prerequisites', 'installer',
+    'debug', 'release', 'amd64', 'x86', 'plugins', 'extensions',
+    'sha256', 'checksum', 'hash'
+]
