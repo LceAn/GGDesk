@@ -1,18 +1,20 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QDialog, QDialogButtonBox,
-    QCheckBox, QFileDialog, QMessageBox, QFileIconProvider, QFrame, QGroupBox
+    QCheckBox, QFileDialog, QMessageBox, QFileIconProvider, QFrame, QGroupBox,
+    QComboBox, QStyle, QSizePolicy, QMenu
 )
 from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject, QSize, QFileInfo
-from PySide6.QtGui import QIcon, QColor, QBrush
+from PySide6.QtGui import QIcon, QColor, QBrush, QFont, QAction, QCursor
 import os
 import scanner_backend as backend
 from .dialog_rules import RulesDialog
 
 
+# --- 线程类 (保持不变) ---
 class ScanWorker(QObject):
-    item_found = Signal(dict)
-    finished = Signal()
+    item_found = Signal(dict);
+    finished = Signal();
     log = Signal(str)
 
     def __init__(self, sources, custom_path):
@@ -41,6 +43,7 @@ class ScanWorker(QObject):
             self.finished.emit()
 
 
+# --- 弹窗类 (保持不变) ---
 class GenSuccessDialog(QDialog):
     def __init__(self, parent, count, output_path):
         super().__init__(parent)
@@ -159,6 +162,8 @@ class RefineWindow(QDialog):
         bottom_bar.addWidget(self.lbl_count);
         bottom_bar.addStretch()
         self.btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.btn_box.button(QDialogButtonBox.StandardButton.Ok).setCursor(Qt.PointingHandCursor)
+        self.btn_box.button(QDialogButtonBox.StandardButton.Cancel).setCursor(Qt.PointingHandCursor)
         self.btn_box.accepted.connect(self.on_ok);
         self.btn_box.rejected.connect(self.reject)
         bottom_bar.addWidget(self.btn_box);
@@ -215,10 +220,10 @@ class RefineWindow(QDialog):
         self.accept()
 
 
+# --- 扫描页面类 (Beta 9.9) ---
 class ScanPage(QWidget):
-    sig_log = Signal(str)
-    sig_status = Signal(str)
-    # 【Beta 9.4 新增】 忙碌状态信号
+    sig_log = Signal(str);
+    sig_status = Signal(str);
     sig_busy = Signal(bool)
 
     def __init__(self):
@@ -230,23 +235,21 @@ class ScanPage(QWidget):
         self.icon_provider = QFileIconProvider()
         self.existing_shortcuts = {}
         self.build_ui()
+        self.update_rules_summary()
 
     def build_ui(self):
-        layout = QVBoxLayout(self);
-        layout.setContentsMargins(30, 30, 30, 30);
-        layout.setSpacing(15)
+        # 主布局
+        main_layout = QVBoxLayout(self);
+        main_layout.setContentsMargins(20, 20, 20, 20);
+        main_layout.setSpacing(15)
 
-        top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel("扫描配置:"))
-        btn_rules = QPushButton("⚙️ 规则管理");
-        btn_rules.setCursor(Qt.PointingHandCursor);
-        btn_rules.clicked.connect(self.open_rules_dialog)
-        top_layout.addWidget(btn_rules);
-        top_layout.addStretch()
-        layout.addLayout(top_layout)
+        # === 1. 控制面板 (Control Panel) ===
+        panel_group = QGroupBox("扫描控制台 (Scanner Control)")
+        panel_layout = QVBoxLayout(panel_group);
+        panel_layout.setSpacing(12)
 
-        src_group = QGroupBox("选择扫描范围")
-        src_layout = QHBoxLayout(src_group)
+        # 1.1 扫描源 + 规则管理
+        src_layout = QHBoxLayout()
         self.chk_start_menu = QCheckBox("开始菜单");
         self.chk_start_menu.setChecked(True)
         self.chk_uwp = QCheckBox("应用商店 (UWP)");
@@ -254,12 +257,20 @@ class ScanPage(QWidget):
         self.chk_custom = QCheckBox("自定义目录");
         self.chk_custom.setChecked(True);
         self.chk_custom.toggled.connect(self.toggle_custom_path)
+
+        btn_rules = QPushButton("⚙️ 规则管理");
+        btn_rules.setFixedWidth(100);
+        btn_rules.setCursor(Qt.PointingHandCursor);
+        btn_rules.clicked.connect(self.open_rules_dialog)
+
         src_layout.addWidget(self.chk_start_menu);
         src_layout.addWidget(self.chk_uwp);
-        src_layout.addWidget(self.chk_custom);
-        src_layout.addStretch()
-        layout.addWidget(src_group)
+        src_layout.addWidget(self.chk_custom)
+        src_layout.addStretch();
+        src_layout.addWidget(btn_rules)
+        panel_layout.addLayout(src_layout)
 
+        # 1.2 自定义路径
         self.path_box = QWidget();
         pb_layout = QHBoxLayout(self.path_box);
         pb_layout.setContentsMargins(0, 0, 0, 0)
@@ -270,73 +281,164 @@ class ScanPage(QWidget):
         btn_browse.clicked.connect(self.browse_scan_path)
         pb_layout.addWidget(self.path_edit);
         pb_layout.addWidget(btn_browse)
-        layout.addWidget(self.path_box)
+        panel_layout.addWidget(self.path_box)
 
+        # 1.3 规则概览
+        rules_layout = QHBoxLayout()
+        self.lbl_rules_summary = QLabel()
+        self.lbl_rules_summary.setStyleSheet("color: #666; font-size: 9pt; font-style: italic; margin-left: 2px;")
+        rules_layout.addWidget(self.lbl_rules_summary)
+        panel_layout.addLayout(rules_layout)
+
+        # 1.4 开始扫描
         self.btn_action = QPushButton("🚀 开始扫描");
-        self.btn_action.setObjectName("primaryButton");
+        self.btn_action.setObjectName("primaryButton")
         self.btn_action.setMinimumHeight(45);
+        self.btn_action.setCursor(Qt.PointingHandCursor);
         self.btn_action.clicked.connect(self.toggle_scan)
-        layout.addWidget(self.btn_action);
-        layout.addSpacing(5)
+        panel_layout.addWidget(self.btn_action)
 
-        info_frame = QFrame();
-        info_frame.setObjectName("infoFrame")
-        info_frame.setStyleSheet(
-            "QFrame#infoFrame { background-color: #E6F3FF; border-radius: 6px; border: 1px solid #Cce5ff; } QLabel { color: #004085; font-size: 9pt; }")
-        info_layout = QHBoxLayout(info_frame);
-        info_layout.setContentsMargins(10, 8, 10, 8)
-        info_layout.addWidget(QLabel("💡"));
-        info_layout.addWidget(QLabel("提示：实时显示扫描结果；双击列表项修改；灰色表示已存在。"));
-        info_layout.addStretch()
-        layout.addWidget(info_frame)
+        main_layout.addWidget(panel_group)
 
-        header_frame = QHBoxLayout()
+        # === 2. 结果面板 (Results Panel) ===
+        res_group = QGroupBox("发现结果")
+        res_layout = QVBoxLayout(res_group);
+        res_layout.setSpacing(5);
+        res_layout.setContentsMargins(10, 15, 10, 10)
+
+        # 2.1 工具条 (全选 | 来源筛选 | 列表设置)
+        tool_bar = QHBoxLayout()
         self.chk_select_all = QCheckBox("全选列表");
         self.chk_select_all.stateChanged.connect(self.toggle_select_all)
-        self.lbl_count = QLabel("已选 0 / 共 0 个");
-        self.lbl_count.setStyleSheet("font-weight: bold; color: #0078D7;")
-        header_frame.addWidget(self.chk_select_all);
-        header_frame.addStretch();
-        header_frame.addWidget(self.lbl_count)
-        layout.addLayout(header_frame)
+        tool_bar.addWidget(self.chk_select_all);
+        tool_bar.addSpacing(20)
 
+        tool_bar.addWidget(QLabel("🔍 来源:"))
+        self.combo_filter = QComboBox()
+        self.combo_filter.addItems(["全部来源 (All)", "自定义目录", "开始菜单", "应用商店"])
+        self.combo_filter.currentTextChanged.connect(self.apply_list_filter)
+        tool_bar.addWidget(self.combo_filter)
+
+        # 【Beta 9.9】 列表设置按钮
+        tool_bar.addSpacing(10)
+        self.btn_list_opts = QPushButton("⚙️ 列表设置")
+        self.btn_list_opts.setFixedWidth(100)
+        self.btn_list_opts.clicked.connect(self.show_list_settings_menu)
+        tool_bar.addWidget(self.btn_list_opts)
+
+        tool_bar.addStretch()
+        self.lbl_count = QLabel("0 个程序");
+        self.lbl_count.setStyleSheet("font-weight: bold; color: #0078D7;")
+        tool_bar.addWidget(self.lbl_count)
+        res_layout.addLayout(tool_bar)
+
+        # 2.2 列表
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名称', '推荐执行文件', '来源', '状态', '所在目录'])
         self.tree.setAlternatingRowColors(True);
         self.tree.setIconSize(QSize(24, 24))
         self.tree.itemDoubleClicked.connect(self.open_refine)
         self.tree.itemChanged.connect(self.on_tree_item_changed)
-        layout.addWidget(self.tree)
+        res_layout.addWidget(self.tree)
 
-        footer_layout = QVBoxLayout();
-        footer_layout.setSpacing(5)
-        self.lbl_path_hint = QLabel("");
-        self.lbl_path_hint.setAlignment(Qt.AlignmentFlag.AlignRight);
-        self.lbl_path_hint.setStyleSheet("color: #999999; font-size: 9pt;")
+        # 2.3 提示
+        info_bar = QLabel("💡 提示：双击列表项修改详情；灰色代表已存在；橙色代表新发现。")
+        info_bar.setStyleSheet("color: #888; font-size: 9pt;")
+        res_layout.addWidget(info_bar)
+
+        main_layout.addWidget(res_group)
+
+        # === 3. 底部操作区 ===
+        footer_layout = QHBoxLayout()
         self.chk_add_to_db = QCheckBox("同时添加到“我的桌面”");
         self.chk_add_to_db.setChecked(True)
-        footer_layout.addWidget(self.chk_add_to_db, 0, Qt.AlignmentFlag.AlignRight)
+        self.lbl_path_hint = QLabel("");
+        self.lbl_path_hint.setStyleSheet("color: #999; margin-right: 10px;")
         self.btn_gen = QPushButton("✨ 生成选中快捷方式");
-        self.btn_gen.setObjectName("primaryButton");
-        self.btn_gen.setMinimumHeight(40);
+        self.btn_gen.setObjectName("primaryButton")
+        self.btn_gen.setMinimumHeight(35);
         self.btn_gen.setEnabled(False);
         self.btn_gen.clicked.connect(self.generate)
+        footer_layout.addWidget(self.chk_add_to_db);
+        footer_layout.addStretch();
         footer_layout.addWidget(self.lbl_path_hint);
         footer_layout.addWidget(self.btn_gen)
-        layout.addLayout(footer_layout)
+        main_layout.addLayout(footer_layout)
 
         last = self.config.get('Settings', 'last_scan_path', fallback='')
         if last: self.path_edit.setText(last)
 
+    # 【Beta 9.9】 显示列表设置菜单
+    def show_list_settings_menu(self):
+        menu = QMenu(self)
+        rules = self.config['Rules']
+
+        act_new = QAction("默认勾选 [🆕 新增程序]", self, checkable=True)
+        act_new.setChecked(rules.getboolean('default_check_new', True))
+        act_new.triggered.connect(lambda c: self.update_list_config('default_check_new', c))
+
+        act_exi = QAction("默认勾选 [✅ 已存在程序]", self, checkable=True)
+        act_exi.setChecked(rules.getboolean('default_check_existing', False))
+        act_exi.triggered.connect(lambda c: self.update_list_config('default_check_existing', c))
+
+        menu.addAction(act_new)
+        menu.addAction(act_exi)
+        menu.exec(QCursor.pos())
+
+    def update_list_config(self, key, value):
+        self.config['Rules'][key] = str(value)
+        backend.save_config(self.config)
+        # 不需要刷新列表，只影响后续
+
+    def update_rules_summary(self):
+        conf = backend.load_config();
+        rules = conf['Rules']
+        badges = []
+        if rules.getboolean('enable_blacklist', True): badges.append("🚫 黑名单")
+        if rules.getboolean('enable_ignored_dirs', True): badges.append("📁 忽略黑洞")
+        if rules.getboolean('enable_size_filter', False):
+            badges.append(f"📏 {rules.get('min_size_kb')}-{rules.get('max_size_mb')}MB")
+        exts = rules.get('target_extensions', '.exe')
+        if exts != '.exe': badges.append(f"📄 {exts}")
+        if rules.getboolean('enable_smart_root', True):
+            badges.append("🧠 智能识别")
+        else:
+            badges.append("📄 平铺模式")
+        if not badges: badges.append("无限制")
+        self.lbl_rules_summary.setText("当前生效规则:  " + "   ".join(badges))
+
+    def apply_list_filter(self, text):
+        root = self.tree.invisibleRootItem()
+        filter_key = ""
+        if "自定义" in text:
+            filter_key = "自定义"
+        elif "开始菜单" in text:
+            filter_key = "开始菜单"
+        elif "应用商店" in text:
+            filter_key = "应用商店"
+        visible_count = 0
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if filter_key == "" or filter_key in item.text(2):
+                item.setHidden(False);
+                visible_count += 1
+            else:
+                item.setHidden(True)
+        checked = 0
+        for i in range(root.childCount()):
+            if root.child(i).checkState(0) == Qt.CheckState.Checked: checked += 1
+        self.lbl_count.setText(f"已选 {checked} / 可见 {visible_count}")
+
     def open_rules_dialog(self):
         RulesDialog(self).exec()
+        self.update_rules_summary()
 
     def toggle_custom_path(self, checked):
         self.path_box.setVisible(checked)
 
     def update_path_hint(self, path):
         if not path: path = os.path.join(os.path.expanduser('~'), 'Desktop', backend.DEFAULT_OUTPUT_FOLDER_NAME)
-        self.lbl_path_hint.setText(f"将生成至: {path}")
+        self.lbl_path_hint.setText(f"生成至: {os.path.basename(path)}/")
         self.existing_shortcuts = {}
         if os.path.exists(path):
             raw = backend.scan_existing_shortcuts(path)
@@ -366,7 +468,8 @@ class ScanPage(QWidget):
         self.tree.clear();
         self.programs = [];
         self.btn_gen.setEnabled(False)
-        conf = backend.load_config()
+        self.combo_filter.setCurrentIndex(0)
+        conf = backend.load_config();
         out = conf.get('Settings', 'output_path', fallback='').strip()
         self.update_path_hint(out)
 
@@ -375,8 +478,6 @@ class ScanPage(QWidget):
         self.btn_action.setStyle(self.style())
         self.sig_status.emit(f"正在扫描... {sources}");
         self.lbl_count.setText("扫描中...")
-
-        # 【Beta 9.4】 发送忙碌信号
         self.sig_busy.emit(True)
 
         self.scan_thread = QThread(self)
@@ -397,13 +498,11 @@ class ScanPage(QWidget):
         rules = conf['Rules']
         check_new = rules.getboolean('default_check_new', True)
         check_exist = rules.getboolean('default_check_existing', False)
-
         target = p['selected_exes'][0] if p['selected_exes'] else ""
         if p.get('type') == 'uwp':
             name_disp = "UWP 应用"; norm_target = target
         else:
             name_disp = os.path.basename(target) if target else "未选择"; norm_target = backend.normalize_path(target)
-
         status_text = "🆕 新增";
         status_tooltip = "新发现的程序";
         status_color = "#2E8B57";
@@ -413,18 +512,15 @@ class ScanPage(QWidget):
             status_tooltip = f"快捷方式已存在";
             status_color = "#888888";
             check_state = Qt.CheckState.Checked if check_exist else Qt.CheckState.Unchecked
-
         source_map = {'start_menu': '开始菜单', 'uwp': '应用商店', 'custom': '自定义'}
         source_text = source_map.get(p.get('type', 'custom'), '未知')
-
         item = QTreeWidgetItem([p['name'], name_disp, source_text, status_text, p['root_path']])
         item.setCheckState(0, check_state);
         item.setToolTip(4, p['root_path'])
         item.setForeground(3, QBrush(QColor(status_color)));
         item.setToolTip(3, status_tooltip)
-        item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
+        item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter);
         item.setForeground(2, QBrush(QColor("#005FB8")))
-
         if p.get('type') != 'uwp' and target: item.setIcon(1,
                                                            self.icon_provider.icon(QFileInfo(target))); item.setToolTip(
             1, target)
@@ -440,8 +536,6 @@ class ScanPage(QWidget):
         self.btn_action.setStyle(self.style())
         self.btn_action.setEnabled(True);
         self.btn_gen.setEnabled(len(self.programs) > 0)
-
-        # 【Beta 9.4】 停止忙碌状态
         self.sig_busy.emit(False)
 
     @Slot()
@@ -451,13 +545,16 @@ class ScanPage(QWidget):
         self.scan_thread = None;
         self.scan_worker = None
 
-    # ... (toggle_select_all, on_tree_item_changed, update_selection_count, open_refine, generate, save_state 保持不变) ...
     def toggle_select_all(self, state):
         is_checked = (state == Qt.CheckState.Checked.value)
         self.tree.blockSignals(True)
         root = self.tree.invisibleRootItem()
-        for i in range(root.childCount()): root.child(i).setCheckState(0,
-                                                                       Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked)
+        visible_count = 0
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if not item.isHidden():
+                item.setCheckState(0, Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked)
+                visible_count += 1
         self.tree.blockSignals(False)
         self.update_selection_count()
 
@@ -465,12 +562,15 @@ class ScanPage(QWidget):
         if column == 0: self.update_selection_count()
 
     def update_selection_count(self):
-        total = self.tree.topLevelItemCount();
         checked = 0;
+        visible = 0;
         root = self.tree.invisibleRootItem()
-        for i in range(total):
-            if root.child(i).checkState(0) == Qt.CheckState.Checked: checked += 1
-        self.lbl_count.setText(f"已选 {checked} / 共 {total} 个")
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if not item.isHidden():
+                visible += 1
+                if item.checkState(0) == Qt.CheckState.Checked: checked += 1
+        self.lbl_count.setText(f"已选 {checked} / 可见 {visible}")
 
     def open_refine(self, item):
         idx = item.data(0, Qt.ItemDataRole.UserRole);

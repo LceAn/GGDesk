@@ -3,20 +3,34 @@ import re
 import win32com.client
 from collections import defaultdict
 from .manager_config import load_config
-from .const import BAD_PATH_KEYWORDS
+# 【Beta 9.8】 不再直接导入常量，改为导入 IO 函数
+from .manager_rules import load_bad_path_keywords, load_prog_runtimes
+from .core_dedup import deduplicate_programs
 
 
-def is_junk_path(path):
+# --- 辅助：判断是否为垃圾路径 ---
+def is_junk_path(path, bad_keywords):
+    """
+    智能判断当前路径是否为组件/缓存/运行时目录
+    bad_keywords: 从文件加载的动态集合
+    """
     path_lower = path.lower()
     folder_name = os.path.basename(path_lower)
-    for kw in BAD_PATH_KEYWORDS:
-        if kw in path_lower: return True
+
+    # 1. 关键词匹配 (动态)
+    for kw in bad_keywords:
+        if kw in path_lower:
+            return True
+
+    # 2. 哈希/乱码文件夹检测 (静态逻辑)
     if len(folder_name) > 20 and re.search(r'\d', folder_name) and re.search(r'[a-z]',
                                                                              folder_name) and ' ' not in folder_name:
         return True
     return False
 
 
+# ... (scan_start_menu, scan_uwp_apps, smart_rank_executables 保持不变，省略以节省篇幅) ...
+# 请保留原有的 scan_start_menu, scan_uwp_apps, smart_rank_executables 函数代码不变
 def scan_start_menu(blocklist):
     paths = [os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
              os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')]
@@ -72,7 +86,7 @@ def smart_rank_executables(program_name, exe_paths, root_path):
         rel_path = os.path.relpath(path, root_path)
         score -= (rel_path.count(os.path.sep) * 15)
         neg = ['helper', 'console', 'server', 'agent', 'service', 'tool', 'crash', 'update', 'handler', 'uninstall',
-               'eula']
+               'eula', 'reporter']
         for kw in neg:
             if kw in name_no_ext: score -= 100
         scored_list.append((score, path))
@@ -80,55 +94,44 @@ def smart_rank_executables(program_name, exe_paths, root_path):
     return [x[1] for x in scored_list]
 
 
-# --- 主生成器 (Beta 9.5 实时流式版) ---
+# --- 主生成器 (Beta 9.8) ---
 def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, check_stop_callback=None):
     conf = load_config()
     rules = conf['Rules']
 
-    # 读取配置
     enable_dedup = rules.getboolean('enable_deduplication', True)
     enable_smart_root = rules.getboolean('enable_smart_root', True)
     use_size = rules.getboolean('enable_size_filter', False)
     min_kb = rules.getint('min_size_kb', 0) * 1024
     max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
+
     exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
 
-    # 实时去重记录 {name: priority}
+    # 【Beta 9.8】 动态加载规则
+    filter_prog = rules.getboolean('enable_prog_filter', True)
+    prog_runtimes, _ = load_prog_runtimes()
+
+    filter_bad_path = rules.getboolean('enable_bad_path', True)  # 新增配置项
+    bad_path_kws, _ = load_bad_path_keywords()
+
     seen_names = {}
-    # 源优先级：Custom(3) > UWP(2) > StartMenu(1)
     source_priority = {'custom': 3, 'uwp': 2, 'start_menu': 1}
 
-    # --- 内部函数：处理并立即 Yield ---
     def process_and_yield(item):
         if enable_dedup:
             key = item['name'].lower()
             prio = source_priority.get(item.get('type', 'custom'), 0)
-
-            if key in seen_names:
-                # 如果已存在，且新来的优先级更低，直接忽略
-                if prio <= seen_names[key]:
-                    return
-                # 如果新来的优先级更高（这在流式处理中比较难办，因为旧的已经yield出去了）
-                # 这里的妥协方案：流式模式下，为了保证实时性，我们遵循“先到先得”或者“容忍重复”
-                # 但为了效果，我们可以在 UI 层做二次去重，或者在这里记录。
-                # 简单起见：这里只做拦截。
-                pass
-
+            if key in seen_names and prio <= seen_names[key]: return
             seen_names[key] = prio
-
-        # 立即输出！
         yield item
 
-    # 1. Start Menu
     if 'start_menu' in sources:
         for item in scan_start_menu(blocklist):
             if check_stop_callback and check_stop_callback(): return
-            # 构造数据并立即处理
             res = {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
                    'type': 'start_menu'}
             yield from process_and_yield(res)
 
-    # 2. UWP
     if 'uwp' in sources:
         for item in scan_uwp_apps(blocklist):
             if check_stop_callback and check_stop_callback(): return
@@ -136,19 +139,17 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                    'type': 'uwp'}
             yield from process_and_yield(res)
 
-    # 3. Custom Path
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
         ignored_lower = {d.lower() for d in ignored_dirs}
 
         for root, dirs, files in os.walk(custom_path, topdown=True):
             if check_stop_callback and check_stop_callback(): return
 
-            # 剪枝：跳过垃圾目录
-            if is_junk_path(root):
+            # 【Beta 9.8】 动态判断垃圾目录
+            if filter_bad_path and is_junk_path(root, bad_path_kws):
                 dirs[:] = []
                 continue
 
-            # 剪枝：跳过用户忽略目录
             dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
             current_exes = []
@@ -156,14 +157,17 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                 is_target = False
                 for ext in exts:
                     if file.lower().endswith(ext): is_target = True; break
-                if not is_target or file.lower() in blocklist: continue
+                if not is_target: continue
+                if file.lower() in blocklist: continue
+
+                # 【Beta 9.8】 动态判断编程环境
+                if filter_prog and file.lower() in prog_runtimes: continue
 
                 try:
                     full = os.path.join(root, file)
                     sz = os.path.getsize(full)
                     if use_size and (sz < min_kb or size > max_mb): continue
 
-                    # 模式 A: 平铺 (关闭智能识别) -> 立即 Yield
                     if not enable_smart_root:
                         res = {
                             'name': os.path.splitext(file)[0],
@@ -174,25 +178,19 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                         }
                         yield from process_and_yield(res)
                     else:
-                        # 模式 B: 智能识别 -> 收集当前文件夹
                         current_exes.append((full, file, sz))
                 except:
                     pass
 
-            # 智能模式：单文件夹处理完，立即分析并 Yield
-            # 这实现了“文件夹级”的实时流，而不是全盘扫描后的延迟显示
             if enable_smart_root and current_exes:
                 folder_name = os.path.basename(root)
-                # 处理 bin 目录反查上一级
                 if folder_name.lower() == 'bin':
                     program_name = os.path.basename(os.path.dirname(root))
                 else:
                     program_name = folder_name
 
-                # 评分
                 exe_paths = [x[0] for x in current_exes]
                 ranked = smart_rank_executables(program_name, exe_paths, root)
-
                 details = []
                 for p in ranked:
                     s = 0

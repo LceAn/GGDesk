@@ -1,0 +1,15 @@
+amd64
+checksum
+debug
+driver
+extensions
+framework
+hash
+installer
+plugins
+prerequisites
+redist
+release
+runtime
+sha256
+x86

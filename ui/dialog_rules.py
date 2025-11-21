@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QTextEdit, QCheckBox, QGroupBox, QSpinBox, QFrame, QMessageBox
+    QTextEdit, QCheckBox, QGroupBox, QSpinBox, QFrame, QMessageBox,
+    QGridLayout
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
@@ -36,44 +37,52 @@ class RulesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("扫描规则配置 (Scanner Rules)")
-        self.resize(700, 600)
+        self.resize(750, 600)  # 高度减小，因为少了一栏
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         self.config = backend.load_config()
         self.blocklist, _ = backend.load_blocklist()
         self.ignored_dirs, _ = backend.load_ignored_dirs()
+        self.prog_runtimes, _ = backend.manager_rules.load_prog_runtimes()
+        self.bad_path_kws, _ = backend.manager_rules.load_bad_path_keywords()
 
+        self.setStyleSheet("""
+            QGroupBox { font-weight: bold; border: 1px solid #CCCCCC; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #0078D7; }
+        """)
         self.build_ui()
         self.load_ui_states()
 
     def build_ui(self):
         layout = QVBoxLayout(self);
-        layout.setContentsMargins(20, 20, 20, 20);
-        layout.setSpacing(15)
+        layout.setContentsMargins(25, 25, 25, 25);
+        layout.setSpacing(20)
+        layout.addWidget(QLabel("🛡️ 扫描器核心规则配置"), 0, Qt.AlignmentFlag.AlignBottom)
 
-        # 1. 目标文件 (Target)
-        g_target = QGroupBox("目标文件类型 (Target Extensions)")
+        # 1. Target
+        g_target = QGroupBox("1. 目标文件类型 (Target Extensions)")
         l_target = QHBoxLayout(g_target)
-        self.chk_exe = QCheckBox("*.exe");
+        self.chk_exe = QCheckBox("*.exe (可执行程序)");
         self.chk_exe.setChecked(True)
-        self.chk_jar = QCheckBox("*.jar");
-        self.chk_bat = QCheckBox("*.bat / *.cmd");
-        self.chk_lnk = QCheckBox("*.lnk")
+        self.chk_jar = QCheckBox("*.jar (Java 应用)");
+        self.chk_bat = QCheckBox("*.bat / *.cmd (脚本)");
+        self.chk_lnk = QCheckBox("*.lnk (快捷方式)")
+
         l_target.addWidget(self.chk_exe);
         l_target.addWidget(self.chk_jar);
         l_target.addWidget(self.chk_bat);
-        l_target.addWidget(self.chk_lnk)
+        l_target.addWidget(self.chk_lnk);
         l_target.addStretch()
         layout.addWidget(g_target)
 
-        # 2. 过滤规则 (Filters)
-        g_filter = QGroupBox("过滤规则 (Filters)")
+        # 2. Filtering
+        g_filter = QGroupBox("2. 过滤与清洗 (Filtering)")
         l_filter = QVBoxLayout(g_filter);
-        l_filter.setSpacing(10)
+        l_filter.setSpacing(12)
 
-        # Size
+        # 2.0 Size
         row_size = QHBoxLayout()
-        self.chk_size = QCheckBox("启用大小过滤")
+        self.chk_size = QCheckBox("启用文件大小过滤")
         self.chk_size.toggled.connect(lambda c: [self.spin_min.setEnabled(c), self.spin_max.setEnabled(c)])
         row_size.addWidget(self.chk_size)
         self.spin_min = QSpinBox();
@@ -89,29 +98,48 @@ class RulesDialog(QDialog):
         row_size.addStretch()
         l_filter.addLayout(row_size)
 
-        # Lists
-        row_lists = QHBoxLayout()
-        self.chk_blk = QCheckBox("启用黑名单")
-        btn_blk = QPushButton("编辑黑名单");
-        btn_blk.clicked.connect(self.edit_blacklist)
-        self.chk_ign = QCheckBox("启用黑洞目录")
-        btn_ign = QPushButton("编辑黑洞目录");
-        btn_ign.clicked.connect(self.edit_ignored)
+        # 2.1 Runtimes
+        row_spec = QHBoxLayout()
+        self.chk_prog = QCheckBox("🚫 过滤编程运行环境 (Python/Java/Node/Go...)")
+        self.chk_prog.setToolTip("跳过解释器本身，只保留应用。")
+        btn_prog = QPushButton("编辑列表");
+        btn_prog.clicked.connect(self.edit_prog)
+        row_spec.addWidget(self.chk_prog);
+        row_spec.addStretch();
+        row_spec.addWidget(btn_prog)
+        l_filter.addLayout(row_spec)
 
-        row_lists.addWidget(self.chk_blk);
-        row_lists.addWidget(btn_blk);
-        row_lists.addSpacing(20)
-        row_lists.addWidget(self.chk_ign);
-        row_lists.addWidget(btn_ign);
-        row_lists.addStretch()
-        l_filter.addLayout(row_lists)
+        line = QFrame();
+        line.setFrameShape(QFrame.Shape.HLine);
+        line.setFrameShadow(QFrame.Shadow.Sunken);
+        l_filter.addWidget(line)
+
+        # 2.2 Blacklists
+        def add_filter_row(chk_box, btn_text, slot_func):
+            r = QHBoxLayout();
+            r.addWidget(chk_box);
+            r.addStretch()
+            btn = QPushButton(btn_text);
+            btn.setFixedWidth(100);
+            btn.clicked.connect(slot_func)
+            r.addWidget(btn);
+            l_filter.addLayout(r)
+
+        self.chk_blk = QCheckBox("🚫 过滤特定文件名 (Blacklist)")
+        add_filter_row(self.chk_blk, "编辑列表", self.edit_blacklist)
+
+        self.chk_ign = QCheckBox("📂 跳过指定目录 (Blackhole Dirs)")
+        add_filter_row(self.chk_ign, "编辑列表", self.edit_ignored)
+
+        self.chk_bad_path = QCheckBox("📂 跳过包含特定词的路径 (Bad Path)")
+        add_filter_row(self.chk_bad_path, "编辑列表", self.edit_bad_path)
+
         layout.addWidget(g_filter)
 
-        # 3. 高级策略 (Strategy)
-        g_adv = QGroupBox("高级策略 (Strategy)")
+        # 3. Strategy
+        g_adv = QGroupBox("3. 智能策略 (Intelligence)")
         l_adv = QVBoxLayout(g_adv)
 
-        # 智能识别
         h_smart = QHBoxLayout()
         self.chk_smart = QCheckBox("启用智能根目录识别 (Smart Root)")
         btn_help = QPushButton("❓");
@@ -123,36 +151,18 @@ class RulesDialog(QDialog):
         h_smart.addStretch()
         l_adv.addLayout(h_smart)
 
-        # 【Beta 9.1 修改】 去重策略配置归一化
         h_dedup = QHBoxLayout()
-        # 更名：更直观
-        self.chk_dedup = QCheckBox("扫描时自动忽略重复项 (Auto-Ignore Duplicates)")
-        self.chk_dedup.setToolTip(
-            "如果开启，扫描过程中发现同名程序时，将自动保留优先级更高的结果（自定义目录 > UWP > 开始菜单）。")
-
-        # 只读显示当前阈值
+        self.chk_dedup = QCheckBox("扫描时自动忽略重复项 (Auto-Ignore)")
         threshold = self.config['Rules'].getfloat('dedup_threshold', 0.6)
-        self.lbl_dedup_val = QLabel(f"(当前全局判定阈值: {int(threshold * 100)}% - 请在[清理去重]工具中修改)")
-        self.lbl_dedup_val.setStyleSheet("color: #888; font-style: italic; margin-left: 10px;")
-
+        lbl_sens = QLabel(f"(当前全局灵敏度: {int(threshold * 100)}% - 在[清理去重]中修改)")
+        lbl_sens.setStyleSheet("color: #888; font-style: italic; margin-left: 5px;")
         h_dedup.addWidget(self.chk_dedup);
-        h_dedup.addWidget(self.lbl_dedup_val);
+        h_dedup.addWidget(lbl_sens);
         h_dedup.addStretch()
         l_adv.addLayout(h_dedup)
-
-        # 默认勾选
-        l_adv.addWidget(QLabel("扫描结果默认勾选:"))
-        h_def = QHBoxLayout()
-        self.chk_def_new = QCheckBox("🆕 新增程序");
-        self.chk_def_exi = QCheckBox("✅ 已存在程序")
-        h_def.addWidget(self.chk_def_new);
-        h_def.addWidget(self.chk_def_exi);
-        h_def.addStretch()
-        l_adv.addLayout(h_def)
-
         layout.addWidget(g_adv)
 
-        # 底部按钮
+        # Bot
         btn_box = QHBoxLayout();
         btn_box.addStretch()
         btn_save = QPushButton("保存并应用");
@@ -167,17 +177,14 @@ class RulesDialog(QDialog):
         layout.addLayout(btn_box)
 
     def show_smart_help(self):
-        QMessageBox.information(self, "说明",
-                                "<b>智能根目录识别:</b><br>"
-                                "开启时：自动识别软件目录，评分选出最佳 EXE。<br>"
-                                "关闭时：平铺列出所有 EXE。")
+        QMessageBox.information(self, "说明", "开启后：自动识别软件目录，评分选出最佳 EXE。\n关闭后：平铺列出所有 EXE。")
 
     def load_ui_states(self):
         r = self.config['Rules']
         exts = r.get('target_extensions', '.exe')
-        self.chk_exe.setChecked('.exe' in exts)
+        self.chk_exe.setChecked('.exe' in exts);
         self.chk_jar.setChecked('.jar' in exts)
-        self.chk_bat.setChecked('.bat' in exts or '.cmd' in exts)
+        self.chk_bat.setChecked('.bat' in exts or '.cmd' in exts);
         self.chk_lnk.setChecked('.lnk' in exts)
 
         self.chk_size.setChecked(r.getboolean('enable_size_filter', False))
@@ -186,19 +193,27 @@ class RulesDialog(QDialog):
 
         self.chk_blk.setChecked(r.getboolean('enable_blacklist', True))
         self.chk_ign.setChecked(r.getboolean('enable_ignored_dirs', True))
+        self.chk_prog.setChecked(r.getboolean('enable_prog_filter', True))
+        self.chk_bad_path.setChecked(r.getboolean('enable_bad_path', True))
 
         self.chk_smart.setChecked(r.getboolean('enable_smart_root', True))
         self.chk_dedup.setChecked(r.getboolean('enable_deduplication', True))
-        self.chk_def_new.setChecked(r.getboolean('default_check_new', True))
-        self.chk_def_exi.setChecked(r.getboolean('default_check_existing', False))
 
     def edit_blacklist(self):
-        d = ListEditDialog(self, "黑名单", self.blocklist, "一行一个:");
+        d = ListEditDialog(self, "编辑黑名单", self.blocklist, "文件名(一行一个):");
         if d.exec(): self.blocklist = d.get_data(); backend.save_blocklist(self.blocklist)
 
     def edit_ignored(self):
-        d = ListEditDialog(self, "黑洞目录", self.ignored_dirs, "一行一个:");
+        d = ListEditDialog(self, "编辑黑洞目录", self.ignored_dirs, "目录名(一行一个):");
         if d.exec(): self.ignored_dirs = d.get_data(); backend.save_ignored_dirs(self.ignored_dirs)
+
+    def edit_prog(self):
+        d = ListEditDialog(self, "编辑运行环境名单", self.prog_runtimes, "文件名(一行一个):");
+        if d.exec(): self.prog_runtimes = d.get_data(); backend.manager_rules.save_prog_runtimes(self.prog_runtimes)
+
+    def edit_bad_path(self):
+        d = ListEditDialog(self, "编辑路径关键词", self.bad_path_kws, "关键词(一行一个):");
+        if d.exec(): self.bad_path_kws = d.get_data(); backend.manager_rules.save_bad_path_keywords(self.bad_path_kws)
 
     def save_config(self):
         r = self.config['Rules']
@@ -212,12 +227,14 @@ class RulesDialog(QDialog):
         r['enable_size_filter'] = str(self.chk_size.isChecked())
         r['min_size_kb'] = str(self.spin_min.value());
         r['max_size_mb'] = str(self.spin_max.value())
-        r['enable_blacklist'] = str(self.chk_blk.isChecked());
+
+        r['enable_blacklist'] = str(self.chk_blk.isChecked())
         r['enable_ignored_dirs'] = str(self.chk_ign.isChecked())
+        r['enable_prog_filter'] = str(self.chk_prog.isChecked())
+        r['enable_bad_path'] = str(self.chk_bad_path.isChecked())
+
         r['enable_smart_root'] = str(self.chk_smart.isChecked());
         r['enable_deduplication'] = str(self.chk_dedup.isChecked())
-        r['default_check_new'] = str(self.chk_def_new.isChecked());
-        r['default_check_existing'] = str(self.chk_def_exi.isChecked())
 
         backend.save_config(self.config)
         self.accept()
