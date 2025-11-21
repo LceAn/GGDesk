@@ -1,46 +1,12 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QTextEdit, QCheckBox, QGroupBox, QSpinBox, QFrame, QMessageBox,
-    QSlider
+    QTextEdit, QCheckBox, QGroupBox, QSpinBox, QFrame, QMessageBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
 import scanner_backend as backend
 
 
-# --- 【Beta 8.2 新增】 灵敏度设置弹窗 ---
-class DedupConfigDialog(QDialog):
-    def __init__(self, parent, current_val):
-        super().__init__(parent)
-        self.setWindowTitle("去重灵敏度设置")
-        self.resize(300, 150)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("相似度判定阈值 (默认 60%)"))
-
-        h = QHBoxLayout()
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(10, 100)
-        self.slider.setValue(int(current_val * 100))
-        self.lbl_val = QLabel(f"{int(current_val * 100)}%")
-
-        self.slider.valueChanged.connect(lambda v: self.lbl_val.setText(f"{v}%"))
-        h.addWidget(self.slider);
-        h.addWidget(self.lbl_val)
-        layout.addLayout(h)
-
-        layout.addWidget(QLabel("值越低，判定越宽松（更多相似项）；\n值越高，判定越严格。"))
-
-        btn = QPushButton("确定");
-        btn.clicked.connect(self.accept)
-        layout.addWidget(btn)
-
-    def get_value(self):
-        return self.slider.value() / 100.0
-
-
-# --- 通用列表编辑弹窗 ---
 class ListEditDialog(QDialog):
     def __init__(self, parent, title, data_set, help_text):
         super().__init__(parent)
@@ -66,7 +32,6 @@ class ListEditDialog(QDialog):
     def get_data(self): return {line.strip() for line in self.editor.toPlainText().split('\n') if line.strip()}
 
 
-# --- 规则设置主弹窗 ---
 class RulesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,15 +123,20 @@ class RulesDialog(QDialog):
         h_smart.addStretch()
         l_adv.addLayout(h_smart)
 
-        # 【Beta 8.2】 智能去重 + 灵敏度按钮
+        # 【Beta 9.1 修改】 去重策略配置归一化
         h_dedup = QHBoxLayout()
-        self.chk_dedup = QCheckBox("智能去重 (合并同名结果)")
-        self.btn_dedup_conf = QPushButton("⚙️ 灵敏度")
-        self.btn_dedup_conf.setFixedSize(80, 24)
-        self.btn_dedup_conf.clicked.connect(self.config_dedup)
+        # 更名：更直观
+        self.chk_dedup = QCheckBox("扫描时自动忽略重复项 (Auto-Ignore Duplicates)")
+        self.chk_dedup.setToolTip(
+            "如果开启，扫描过程中发现同名程序时，将自动保留优先级更高的结果（自定义目录 > UWP > 开始菜单）。")
+
+        # 只读显示当前阈值
+        threshold = self.config['Rules'].getfloat('dedup_threshold', 0.6)
+        self.lbl_dedup_val = QLabel(f"(当前全局判定阈值: {int(threshold * 100)}% - 请在[清理去重]工具中修改)")
+        self.lbl_dedup_val.setStyleSheet("color: #888; font-style: italic; margin-left: 10px;")
 
         h_dedup.addWidget(self.chk_dedup);
-        h_dedup.addWidget(self.btn_dedup_conf);
+        h_dedup.addWidget(self.lbl_dedup_val);
         h_dedup.addStretch()
         l_adv.addLayout(h_dedup)
 
@@ -201,12 +171,6 @@ class RulesDialog(QDialog):
                                 "<b>智能根目录识别:</b><br>"
                                 "开启时：自动识别软件目录，评分选出最佳 EXE。<br>"
                                 "关闭时：平铺列出所有 EXE。")
-
-    def config_dedup(self):
-        cur = self.config['Rules'].getfloat('dedup_threshold', 0.6)
-        d = DedupConfigDialog(self, cur)
-        if d.exec():
-            self.config['Rules']['dedup_threshold'] = str(d.get_value())
 
     def load_ui_states(self):
         r = self.config['Rules']

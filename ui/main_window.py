@@ -11,24 +11,21 @@ import scanner_styles as styles
 # 导入页面
 from .page_scan import ScanPage
 from .page_output import OutputPage
-from .page_rules import RulesPage
 from .page_settings import SettingsPage
 from .page_quick_launch import QuickLaunchPage
 from .page_launch_manage import LaunchManagePage
 from .page_model_config import ModelConfigPage
 from .dialog_welcome import WelcomeDialog
-# 【Beta 9.0】 导入新页面
 from .page_dedup import DedupPage
 
 
-# ... (AboutDialog, ClickableLabel, NavButton 保持不变) ...
-# ... (请保留原来的 AboutDialog, ClickableLabel, NavButton 代码) ...
+# 【修复】 移除了 page_rules 的导入
 
 class AboutDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("关于 GGDesk");
-        self.setFixedSize(400, 250);
+        self.setWindowTitle("关于 GGDesk")
+        self.setFixedSize(400, 250)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         layout = QVBoxLayout(self);
         layout.setSpacing(15);
@@ -37,7 +34,7 @@ class AboutDialog(QDialog):
         lbl_title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #0078D7;");
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter);
         layout.addWidget(lbl_title)
-        lbl_ver = QLabel("Version: Beta 9.0 (Clean Tool)");
+        lbl_ver = QLabel("Version: Beta 9.1");
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
         layout.addWidget(lbl_ver)
         btn_gh = QPushButton("🔗 GitHub");
@@ -70,7 +67,7 @@ class NavButton(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GGDesk Beta 9.0")
+        self.setWindowTitle("GGDesk Beta 9.1")
         self.config = backend.load_config()
         backend.init_databases()
         self.build_ui()
@@ -132,13 +129,11 @@ class MainWindow(QMainWindow):
 
         add_cat(" 工具箱")
         self.nav_scan = self.add_nav_btn("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 2, sb_layout)
-
-        # 【Beta 9.0】 新增 去重工具
         self.nav_dedup = self.add_nav_btn("  清理去重", QStyle.StandardPixmap.SP_TrashIcon, 3, sb_layout)
-
         self.nav_out = self.add_nav_btn("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 4, sb_layout)
 
         add_cat(" 软件设置")
+        # 【修复】 移除了 规则管理 按钮
         self.nav_model = self.add_nav_btn("  模型配置", QStyle.StandardPixmap.SP_DriveNetIcon, 5, sb_layout)
         self.nav_set = self.add_nav_btn("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 6, sb_layout)
 
@@ -150,7 +145,7 @@ class MainWindow(QMainWindow):
         self.line.setStyleSheet("border-color: #444444;");
         sb_layout.addWidget(self.line);
         sb_layout.addSpacing(10)
-        self.lbl_ver = ClickableLabel("Beta 9.0");
+        self.lbl_ver = ClickableLabel("Beta 9.1");
         self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
         self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;");
         self.lbl_ver.clicked.connect(self.show_about);
@@ -163,24 +158,23 @@ class MainWindow(QMainWindow):
         sb_layout.addSpacing(5);
         root_layout.addWidget(self.sidebar)
 
-        # Pages
+        # Stacked Pages
         self.stack = QStackedWidget();
         self.stack.setObjectName("mainArea")
 
         self.page_quick = QuickLaunchPage()  # 0
         self.page_manage = LaunchManagePage()  # 1
         self.page_scan = ScanPage()  # 2
-
-        self.page_dedup = DedupPage()  # 3 (New)
-
+        self.page_dedup = DedupPage()  # 3
         self.page_output = OutputPage()  # 4
+        # 【修复】 移除了 self.page_rules
         self.page_model = ModelConfigPage()  # 5
         self.page_settings = SettingsPage()  # 6
 
         self.stack.addWidget(self.page_quick)
         self.stack.addWidget(self.page_manage)
         self.stack.addWidget(self.page_scan)
-        self.stack.addWidget(self.page_dedup)  # Add
+        self.stack.addWidget(self.page_dedup)
         self.stack.addWidget(self.page_output)
         self.stack.addWidget(self.page_model)
         self.stack.addWidget(self.page_settings)
@@ -190,6 +184,7 @@ class MainWindow(QMainWindow):
         self.nav_quick.setChecked(True);
         self.stack.setCurrentIndex(0)
 
+        # Signals
         self.page_scan.sig_log.connect(self.page_settings.append_log)
         self.page_scan.sig_status.connect(self.update_status)
         if hasattr(self.page_output, 'sig_path_changed'): self.page_output.sig_path_changed.connect(
@@ -232,7 +227,6 @@ class MainWindow(QMainWindow):
             self.page_quick.load_data()
         elif idx == 1:
             self.page_manage.load_data()
-        # Beta 9.0: Dedup page doesn't auto-load, user clicks scan manually
 
     def show_about(self):
         AboutDialog(self).exec()

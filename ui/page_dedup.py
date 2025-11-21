@@ -27,17 +27,29 @@ class DedupPage(QWidget):
         layout.setSpacing(20)
 
         # 1. 头部控制区
-        top_box = QGroupBox("分析策略 (Analysis Strategy)")
+        top_box = QGroupBox("数据库深度清理 (Database Cleanup)")
         top_layout = QHBoxLayout(top_box)
 
-        top_layout.addWidget(QLabel("相似度阈值:"))
+        top_layout.addWidget(QLabel("相似度阈值 (读取自全局配置):"))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(10, 100)
-        self.slider.setValue(60)  # 默认 0.6
-        self.lbl_val = QLabel("60%")
+
+        # 【Beta 9.1 优化】 读取全局配置的默认值
+        global_threshold = self.config['Rules'].getfloat('dedup_threshold', 0.6)
+        self.slider.setValue(int(global_threshold * 100))
+
+        self.lbl_val = QLabel(f"{int(global_threshold * 100)}%")
         self.slider.valueChanged.connect(lambda v: self.lbl_val.setText(f"{v}%"))
+
+        # 增加一个“保存为全局默认”的小按钮
+        btn_save_default = QPushButton("💾")
+        btn_save_default.setFixedSize(30, 25)
+        btn_save_default.setToolTip("将当前滑块值保存为全局默认灵敏度")
+        btn_save_default.clicked.connect(self.save_threshold_global)
+
         top_layout.addWidget(self.slider);
-        top_layout.addWidget(self.lbl_val)
+        top_layout.addWidget(self.lbl_val);
+        top_layout.addWidget(btn_save_default)
 
         top_layout.addSpacing(20)
 
@@ -79,6 +91,14 @@ class DedupPage(QWidget):
         bot_layout.addStretch()
         bot_layout.addWidget(self.btn_clean)
         layout.addLayout(bot_layout)
+
+    # 【Beta 9.1 新增】 反向同步配置
+    def save_threshold_global(self):
+        val = str(self.slider.value() / 100.0)
+        self.config['Rules']['dedup_threshold'] = val
+        backend.save_config(self.config)
+        QMessageBox.information(self, "已保存",
+                                f"全局判重灵敏度已更新为 {self.lbl_val.text()}。\n扫描策略也将使用此标准。")
 
     def start_analysis(self):
         self.tree.clear()
