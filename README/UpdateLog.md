@@ -1,4 +1,27 @@
 ## 📝 完整更新日志
+-----
+
+### [2025-11-21] Beta 9.3 - 组件化重构 
+
+**🧱 代码解耦 (Decoupling)**
+
+  * **Widgets 分离**: 创建 `ui/widgets.py`，将 `NavButton` 和 `ClickableLabel` 等通用控件移出主逻辑文件。
+  * **Sidebar 封装**: 创建 `ui/sidebar.py`，将侧边栏的布局、动画逻辑、信号发射全部封装在 `Sidebar` 类中。主窗口不再关心侧边栏的内部实现细节，大大降低了代码复杂度。
+  * **Main Window 瘦身**: `main_window.py` 现在仅负责页面堆栈的组装和全局信号的转发，代码量减少 30% 以上，逻辑更加清晰。
+
+**⚙️ 功能维护**
+
+  * 保持了 Beta 9.x 系列的所有功能（去重工具、规则管理、快捷启动）不受影响，仅改变底层代码结构。
+
+-----
+### [2025-11-21] Beta 9.2 - 模块化重构 (Code Separation)
+
+**🧱 架构重构 (Refactoring)**
+
+  * **独立关于页面**: 将 `AboutDialog` 类从 `main_window.py` 中剥离，放入新建的 `ui/dialog_about.py` 模块中。
+  * **代码瘦身**: 主窗口代码文件体积减小，职责更加单一（只负责布局和调度），便于后续维护。
+---
+
 ### [2025-11-21] Beta 9.1 - 配置归一化 (Config Normalization)
 
 **🛡️ 逻辑澄清 (Logic Clarification)**

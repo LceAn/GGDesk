@@ -8,14 +8,11 @@ from PySide6.QtGui import QIcon, QColor, QBrush
 import os
 import scanner_backend as backend
 from .dialog_rules import RulesDialog
-# 【Beta 8.2】新增导入
-from scanner_backend.core_dedup import DuplicateAnalyzer
-from .dialog_dedup_solve import DeduplicateSolverDialog
 
 
 class ScanWorker(QObject):
     item_found = Signal(dict)
-    finished = Signal(list)  # 修改：携带完整程序列表
+    finished = Signal()
     log = Signal(str)
 
     def __init__(self, sources, custom_path):
@@ -35,15 +32,13 @@ class ScanWorker(QObject):
             ign, _ = backend.load_ignored_dirs()
             iterator = backend.discover_programs_generator(self.sources, self.custom_path, blk, ign,
                                                            lambda: not self.is_running)
-            all_programs = []  # 新增：收集所有程序
             for program in iterator:
                 if not self.is_running: break
                 self.item_found.emit(program)
-                all_programs.append(program)  # 流式收集
-            self.finished.emit(all_programs)  # 发射完整列表
+            self.finished.emit()
         except Exception as e:
             self.log.emit(f"Error: {e}");
-            self.finished.emit([])  # 异常时返回空列表
+            self.finished.emit()
 
 
 class GenSuccessDialog(QDialog):
@@ -108,13 +103,9 @@ class RefineWindow(QDialog):
         self.icon_provider = QFileIconProvider()
         self.build_ui()
         if self.all_exes:
-            self.populate_tree();
-            self.pre_select_items();
-            self.on_filter_changed();
-            self.update_count_label()
+            self.populate_tree(); self.pre_select_items(); self.on_filter_changed(); self.update_count_label()
         else:
-            self.lbl_count.setText("此类型的程序不支持修改执行文件。");
-            self.tree.setEnabled(False)
+            self.lbl_count.setText("此类型的程序不支持修改执行文件。"); self.tree.setEnabled(False)
 
     def build_ui(self):
         layout = QVBoxLayout(self);
@@ -225,17 +216,19 @@ class RefineWindow(QDialog):
 
 
 class ScanPage(QWidget):
-    sig_log = Signal(str);
+    sig_log = Signal(str)
     sig_status = Signal(str)
+    # 【Beta 9.4 新增】 忙碌状态信号
+    sig_busy = Signal(bool)
 
     def __init__(self):
         super().__init__()
         self.config = backend.load_config()
-        self.programs = []  # 存储所有发现的程序
+        self.programs = []
         self.scan_thread = None;
         self.scan_worker = None;
         self.icon_provider = QFileIconProvider()
-        self.existing_shortcuts = {}  # 缓存
+        self.existing_shortcuts = {}
         self.build_ui()
 
     def build_ui(self):
@@ -243,7 +236,6 @@ class ScanPage(QWidget):
         layout.setContentsMargins(30, 30, 30, 30);
         layout.setSpacing(15)
 
-        # 1. 顶部配置条
         top_layout = QHBoxLayout()
         top_layout.addWidget(QLabel("扫描配置:"))
         btn_rules = QPushButton("⚙️ 规则管理");
@@ -253,7 +245,6 @@ class ScanPage(QWidget):
         top_layout.addStretch()
         layout.addLayout(top_layout)
 
-        # 2. 源选择
         src_group = QGroupBox("选择扫描范围")
         src_layout = QHBoxLayout(src_group)
         self.chk_start_menu = QCheckBox("开始菜单");
@@ -269,7 +260,6 @@ class ScanPage(QWidget):
         src_layout.addStretch()
         layout.addWidget(src_group)
 
-        # 3. 自定义路径
         self.path_box = QWidget();
         pb_layout = QHBoxLayout(self.path_box);
         pb_layout.setContentsMargins(0, 0, 0, 0)
@@ -282,7 +272,6 @@ class ScanPage(QWidget):
         pb_layout.addWidget(btn_browse)
         layout.addWidget(self.path_box)
 
-        # 4. 扫描按钮
         self.btn_action = QPushButton("🚀 开始扫描");
         self.btn_action.setObjectName("primaryButton");
         self.btn_action.setMinimumHeight(45);
@@ -290,7 +279,6 @@ class ScanPage(QWidget):
         layout.addWidget(self.btn_action);
         layout.addSpacing(5)
 
-        # 5. 提示条
         info_frame = QFrame();
         info_frame.setObjectName("infoFrame")
         info_frame.setStyleSheet(
@@ -302,7 +290,6 @@ class ScanPage(QWidget):
         info_layout.addStretch()
         layout.addWidget(info_frame)
 
-        # 6. 列表头
         header_frame = QHBoxLayout()
         self.chk_select_all = QCheckBox("全选列表");
         self.chk_select_all.stateChanged.connect(self.toggle_select_all)
@@ -313,7 +300,6 @@ class ScanPage(QWidget):
         header_frame.addWidget(self.lbl_count)
         layout.addLayout(header_frame)
 
-        # 7. 列表
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名称', '推荐执行文件', '来源', '状态', '所在目录'])
         self.tree.setAlternatingRowColors(True);
@@ -322,7 +308,6 @@ class ScanPage(QWidget):
         self.tree.itemChanged.connect(self.on_tree_item_changed)
         layout.addWidget(self.tree)
 
-        # 8. 底部
         footer_layout = QVBoxLayout();
         footer_layout.setSpacing(5)
         self.lbl_path_hint = QLabel("");
@@ -352,7 +337,6 @@ class ScanPage(QWidget):
     def update_path_hint(self, path):
         if not path: path = os.path.join(os.path.expanduser('~'), 'Desktop', backend.DEFAULT_OUTPUT_FOLDER_NAME)
         self.lbl_path_hint.setText(f"将生成至: {path}")
-        # 更新缓存的现有快捷方式
         self.existing_shortcuts = {}
         if os.path.exists(path):
             raw = backend.scan_existing_shortcuts(path)
@@ -392,11 +376,13 @@ class ScanPage(QWidget):
         self.sig_status.emit(f"正在扫描... {sources}");
         self.lbl_count.setText("扫描中...")
 
+        # 【Beta 9.4】 发送忙碌信号
+        self.sig_busy.emit(True)
+
         self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(sources, custom_path)
         self.scan_worker.moveToThread(self.scan_thread)
-
-        self.scan_worker.item_found.connect(self.on_item_found)  # 仅收集数据
+        self.scan_worker.item_found.connect(self.on_item_found)
         self.scan_worker.log.connect(self.sig_log)
         self.scan_worker.finished.connect(self.on_scan_done)
         self.scan_thread.started.connect(self.scan_worker.run)
@@ -406,80 +392,57 @@ class ScanPage(QWidget):
 
     @Slot(dict)
     def on_item_found(self, p):
-        self.programs.append(p)  # 仅收集数据，不渲染
-        self.update_selection_count()
-
-    def populate_tree(self):
-        """新增：统一渲染程序列表（去重后）"""
-        self.tree.clear()
-        conf = backend.load_config()
+        self.programs.append(p)
+        conf = backend.load_config();
         rules = conf['Rules']
         check_new = rules.getboolean('default_check_new', True)
         check_exist = rules.getboolean('default_check_existing', False)
 
-        for idx, p in enumerate(self.programs):
-            target = p['selected_exes'][0] if p['selected_exes'] else ""
-            if p.get('type') == 'uwp':
-                name_disp = "UWP 应用";
-                norm_target = target
-            else:
-                name_disp = os.path.basename(target) if target else "未选择";
-                norm_target = backend.normalize_path(target)
+        target = p['selected_exes'][0] if p['selected_exes'] else ""
+        if p.get('type') == 'uwp':
+            name_disp = "UWP 应用"; norm_target = target
+        else:
+            name_disp = os.path.basename(target) if target else "未选择"; norm_target = backend.normalize_path(target)
 
-            status_text = "🆕 新增";
-            status_tooltip = "新发现的程序";
-            status_color = "#2E8B57";
-            check_state = Qt.CheckState.Checked if check_new else Qt.CheckState.Unchecked
-            if norm_target in self.existing_shortcuts:
-                status_text = "✅ 已存在";
-                status_tooltip = f"快捷方式已存在";
-                status_color = "#888888";
-                check_state = Qt.CheckState.Checked if check_exist else Qt.CheckState.Unchecked
+        status_text = "🆕 新增";
+        status_tooltip = "新发现的程序";
+        status_color = "#2E8B57";
+        check_state = Qt.CheckState.Checked if check_new else Qt.CheckState.Unchecked
+        if norm_target in self.existing_shortcuts:
+            status_text = "✅ 已存在";
+            status_tooltip = f"快捷方式已存在";
+            status_color = "#888888";
+            check_state = Qt.CheckState.Checked if check_exist else Qt.CheckState.Unchecked
 
-            source_map = {'start_menu': '开始菜单', 'uwp': '应用商店', 'custom': '自定义'}
-            source_text = source_map.get(p.get('type', 'custom'), '未知')
+        source_map = {'start_menu': '开始菜单', 'uwp': '应用商店', 'custom': '自定义'}
+        source_text = source_map.get(p.get('type', 'custom'), '未知')
 
-            item = QTreeWidgetItem([p['name'], name_disp, source_text, status_text, p['root_path']])
-            item.setCheckState(0, check_state);
-            item.setToolTip(4, p['root_path'])
-            item.setForeground(3, QBrush(QColor(status_color)));
-            item.setToolTip(3, status_tooltip)
-            item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
-            item.setForeground(2, QBrush(QColor("#005FB8")))
+        item = QTreeWidgetItem([p['name'], name_disp, source_text, status_text, p['root_path']])
+        item.setCheckState(0, check_state);
+        item.setToolTip(4, p['root_path'])
+        item.setForeground(3, QBrush(QColor(status_color)));
+        item.setToolTip(3, status_tooltip)
+        item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
+        item.setForeground(2, QBrush(QColor("#005FB8")))
 
-            if p.get('type') != 'uwp' and target:
-                item.setIcon(1, self.icon_provider.icon(QFileInfo(target)))
-                item.setToolTip(1, target)
-            item.setData(0, Qt.ItemDataRole.UserRole, idx)
-            self.tree.addTopLevelItem(item)
+        if p.get('type') != 'uwp' and target: item.setIcon(1,
+                                                           self.icon_provider.icon(QFileInfo(target))); item.setToolTip(
+            1, target)
+        item.setData(0, Qt.ItemDataRole.UserRole, len(self.programs) - 1)
+        self.tree.addTopLevelItem(item)
+        self.update_selection_count()
 
-    @Slot(list)
-    def on_scan_done(self, res):
-        """修改：扫描结束后去重并渲染"""
-        conf = backend.load_config()
-        enable_dedup = conf['Rules'].getboolean('enable_deduplication', True)
-        threshold = conf['Rules'].getfloat('dedup_threshold', 0.6)
-
-        if enable_dedup:
-            analyzer = DuplicateAnalyzer(threshold)
-            unique, fuzzy = analyzer.analyze(self.programs)
-
-            if fuzzy:
-                dlg = DeduplicateSolverDialog(self, fuzzy)
-                if dlg.exec() == QDialog.DialogCode.Accepted:
-                    selected = dlg.get_selected_items()
-                    self.programs = unique + selected
-
-        # 统一渲染列表
-        self.populate_tree()
-
-        self.sig_status.emit(f"就绪 - 共筛选出 {len(self.programs)} 个程序")
+    @Slot()
+    def on_scan_done(self):
+        self.sig_status.emit(f"就绪 - 共发现 {len(self.programs)} 个程序")
         self.btn_action.setText("🚀 开始扫描");
         self.btn_action.setObjectName("primaryButton");
         self.btn_action.setStyle(self.style())
         self.btn_action.setEnabled(True);
         self.btn_gen.setEnabled(len(self.programs) > 0)
-        self.update_selection_count()
+
+        # 【Beta 9.4】 停止忙碌状态
+        self.sig_busy.emit(False)
 
     @Slot()
     def cleanup_thread(self):
@@ -488,6 +451,7 @@ class ScanPage(QWidget):
         self.scan_thread = None;
         self.scan_worker = None
 
+    # ... (toggle_select_all, on_tree_item_changed, update_selection_count, open_refine, generate, save_state 保持不变) ...
     def toggle_select_all(self, state):
         is_checked = (state == Qt.CheckState.Checked.value)
         self.tree.blockSignals(True)

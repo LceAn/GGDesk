@@ -8,41 +8,19 @@ from PySide6.QtGui import QDesktopServices, QCursor, QIcon
 import scanner_backend as backend
 import scanner_styles as styles
 
-# 导入页面
+# 导入各个页面
 from .page_scan import ScanPage
 from .page_output import OutputPage
 from .page_settings import SettingsPage
 from .page_quick_launch import QuickLaunchPage
 from .page_launch_manage import LaunchManagePage
 from .page_model_config import ModelConfigPage
-from .dialog_welcome import WelcomeDialog
 from .page_dedup import DedupPage
+from .dialog_welcome import WelcomeDialog
+from .dialog_about import AboutDialog
 
 
-# 【修复】 移除了 page_rules 的导入
-
-class AboutDialog(QDialog):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setWindowTitle("关于 GGDesk")
-        self.setFixedSize(400, 250)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        layout = QVBoxLayout(self);
-        layout.setSpacing(15);
-        layout.setContentsMargins(30, 30, 30, 30)
-        lbl_title = QLabel("GGDesk Shortcut Scanner");
-        lbl_title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #0078D7;");
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter);
-        layout.addWidget(lbl_title)
-        lbl_ver = QLabel("Version: Beta 9.1");
-        lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
-        layout.addWidget(lbl_ver)
-        btn_gh = QPushButton("🔗 GitHub");
-        btn_gh.setCursor(Qt.PointingHandCursor);
-        btn_gh.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/LceAn/GGDesk")));
-        layout.addWidget(btn_gh)
-        layout.addStretch()
-
+# 【修复】 已移除 page_rules 导入，因为它是弹窗 (RulesDialog)，不由主窗口管理
 
 class ClickableLabel(QLabel):
     clicked = Signal()
@@ -67,24 +45,37 @@ class NavButton(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GGDesk Beta 9.1")
+        self.setWindowTitle("GGDesk Beta 9.4.1")
         self.config = backend.load_config()
         backend.init_databases()
+
         self.build_ui()
         self.setup_statusbar()
         self.restore_geometry()
+
         if hasattr(self, 'page_output'): self.on_output_path_changed(self.page_output.out_edit.text())
         self.check_first_run()
 
     def setup_statusbar(self):
         self.status_bar = QStatusBar();
         self.setStatusBar(self.status_bar)
-        self.status_label = QLabel("就绪");
-        self.status_bar.addWidget(self.status_label)
+        self.status_bar.setStyleSheet("""
+            QStatusBar { background-color: #FFFFFF; border-top: 1px solid #E5E5E5; min-height: 28px; color: #666666; }
+            QStatusBar::item { border: none; }
+        """)
+        self.status_label = QLabel(" 就绪");
+        self.status_label.setStyleSheet("padding-left: 5px;")
+        self.status_bar.addWidget(self.status_label, 1)
         self.progress = QProgressBar();
-        self.progress.setMaximumWidth(150);
+        self.progress.setFixedWidth(150);
+        self.progress.setFixedHeight(4);
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet("""
+            QProgressBar { background-color: #F0F0F0; border: none; border-radius: 2px; }
+            QProgressBar::chunk { background-color: #0078D7; border-radius: 2px; }
+        """)
         self.progress.setVisible(False);
-        self.progress.setRange(0, 0);
+        self.progress.setRange(0, 0)
         self.status_bar.addPermanentWidget(self.progress)
 
     def build_ui(self):
@@ -133,7 +124,7 @@ class MainWindow(QMainWindow):
         self.nav_out = self.add_nav_btn("  生成路径", QStyle.StandardPixmap.SP_DirIcon, 4, sb_layout)
 
         add_cat(" 软件设置")
-        # 【修复】 移除了 规则管理 按钮
+        # 【修复】 移除了 nav_filter (规则管理)，因为它现在是 ScanPage 里的弹窗
         self.nav_model = self.add_nav_btn("  模型配置", QStyle.StandardPixmap.SP_DriveNetIcon, 5, sb_layout)
         self.nav_set = self.add_nav_btn("  系统设置", QStyle.StandardPixmap.SP_FileDialogDetailedView, 6, sb_layout)
 
@@ -145,7 +136,7 @@ class MainWindow(QMainWindow):
         self.line.setStyleSheet("border-color: #444444;");
         sb_layout.addWidget(self.line);
         sb_layout.addSpacing(10)
-        self.lbl_ver = ClickableLabel("Beta 9.1");
+        self.lbl_ver = ClickableLabel("Beta 9.4.1");
         self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
         self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;");
         self.lbl_ver.clicked.connect(self.show_about);
@@ -158,16 +149,17 @@ class MainWindow(QMainWindow):
         sb_layout.addSpacing(5);
         root_layout.addWidget(self.sidebar)
 
-        # Stacked Pages
+        # Pages
         self.stack = QStackedWidget();
         self.stack.setObjectName("mainArea")
 
+        # 必须与 ID 对应
         self.page_quick = QuickLaunchPage()  # 0
         self.page_manage = LaunchManagePage()  # 1
         self.page_scan = ScanPage()  # 2
         self.page_dedup = DedupPage()  # 3
         self.page_output = OutputPage()  # 4
-        # 【修复】 移除了 self.page_rules
+        # 移除了 page_rules
         self.page_model = ModelConfigPage()  # 5
         self.page_settings = SettingsPage()  # 6
 
@@ -184,11 +176,12 @@ class MainWindow(QMainWindow):
         self.nav_quick.setChecked(True);
         self.stack.setCurrentIndex(0)
 
-        # Signals
         self.page_scan.sig_log.connect(self.page_settings.append_log)
         self.page_scan.sig_status.connect(self.update_status)
+        self.page_scan.sig_busy.connect(self.update_busy_state)
         if hasattr(self.page_output, 'sig_path_changed'): self.page_output.sig_path_changed.connect(
             self.on_output_path_changed)
+        self.page_manage.sig_settings_changed.connect(self.page_quick.load_data)
 
     def add_nav_btn(self, text, icon, idx, layout):
         btn = NavButton(text, icon)
@@ -246,7 +239,11 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def update_status(self, msg):
-        self.status_label.setText(msg); self.progress.setVisible("扫描" in msg)
+        self.status_label.setText(" " + msg)
+
+    @Slot(bool)
+    def update_busy_state(self, is_busy):
+        self.progress.setVisible(is_busy)
 
     @Slot(str)
     def on_output_path_changed(self, path):
