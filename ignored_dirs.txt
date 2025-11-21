@@ -3,14 +3,23 @@ $RECYCLE.BIN
 .idea
 .svn
 .vscode
+Common7
+MSBuild
+Microsoft Visual Studio
 ProgramData
 System Volume Information
 Windows
 __pycache__
-build
-dist
+cache
 env
+jbr
+jre
+logs
 node_modules
+obj
+packages
+properties
+runtimes
 temp
 tmp
 venv

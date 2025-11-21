@@ -4,10 +4,8 @@ import win32com.client
 from collections import defaultdict
 from .manager_config import load_config
 from .const import BAD_PATH_KEYWORDS
-from .core_dedup import deduplicate_programs  # 导入去重模块
 
 
-# --- 辅助判断 ---
 def is_junk_path(path):
     path_lower = path.lower()
     folder_name = os.path.basename(path_lower)
@@ -19,7 +17,6 @@ def is_junk_path(path):
     return False
 
 
-# --- 扫描源实现 ---
 def scan_start_menu(blocklist):
     paths = [os.path.expandvars(r'%APPDATA%\Microsoft\Windows\Start Menu\Programs'),
              os.path.expandvars(r'%ProgramData%\Microsoft\Windows\Start Menu\Programs')]
@@ -52,7 +49,6 @@ def scan_uwp_apps(blocklist):
         pass
 
 
-# --- 智能评分 (Beta 7.4 Logic) ---
 def smart_rank_executables(program_name, exe_paths, root_path):
     tokens = [t.lower() for t in re.split(r'[_\-\s\.]+', program_name) if len(t) > 1 and not t.isdigit()]
     clean_name = re.sub(r'[_\-\s\d\.]+', '', program_name.lower())
@@ -84,28 +80,53 @@ def smart_rank_executables(program_name, exe_paths, root_path):
     return [x[1] for x in scored_list]
 
 
-# --- 主生成器 (修复版) ---
+# --- 主生成器 (Beta 9.5 实时流式版) ---
 def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, check_stop_callback=None):
     conf = load_config()
     rules = conf['Rules']
-    enable_smart_root = rules.getboolean('enable_smart_root', True)
+
+    # 读取配置
     enable_dedup = rules.getboolean('enable_deduplication', True)
+    enable_smart_root = rules.getboolean('enable_smart_root', True)
     use_size = rules.getboolean('enable_size_filter', False)
     min_kb = rules.getint('min_size_kb', 0) * 1024
     max_mb = rules.getint('max_size_mb', 500) * 1024 * 1024
     exts = [e.strip().lower() for e in rules.get('target_extensions', '.exe').split(',')]
 
-    # 临时存储列表，用于去重
-    all_found_items = []
+    # 实时去重记录 {name: priority}
+    seen_names = {}
+    # 源优先级：Custom(3) > UWP(2) > StartMenu(1)
+    source_priority = {'custom': 3, 'uwp': 2, 'start_menu': 1}
+
+    # --- 内部函数：处理并立即 Yield ---
+    def process_and_yield(item):
+        if enable_dedup:
+            key = item['name'].lower()
+            prio = source_priority.get(item.get('type', 'custom'), 0)
+
+            if key in seen_names:
+                # 如果已存在，且新来的优先级更低，直接忽略
+                if prio <= seen_names[key]:
+                    return
+                # 如果新来的优先级更高（这在流式处理中比较难办，因为旧的已经yield出去了）
+                # 这里的妥协方案：流式模式下，为了保证实时性，我们遵循“先到先得”或者“容忍重复”
+                # 但为了效果，我们可以在 UI 层做二次去重，或者在这里记录。
+                # 简单起见：这里只做拦截。
+                pass
+
+            seen_names[key] = prio
+
+        # 立即输出！
+        yield item
 
     # 1. Start Menu
     if 'start_menu' in sources:
         for item in scan_start_menu(blocklist):
             if check_stop_callback and check_stop_callback(): return
+            # 构造数据并立即处理
             res = {'name': item['name'], 'root_path': item['root'], 'all_exes': [], 'selected_exes': (item['path'],),
                    'type': 'start_menu'}
-            all_found_items.append(res)
-            if not enable_dedup: yield res  # 如果不去重，直接抛出
+            yield from process_and_yield(res)
 
     # 2. UWP
     if 'uwp' in sources:
@@ -113,23 +134,21 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
             if check_stop_callback and check_stop_callback(): return
             res = {'name': item['name'], 'root_path': "UWP / System", 'all_exes': [], 'selected_exes': (item['path'],),
                    'type': 'uwp'}
-            all_found_items.append(res)
-            if not enable_dedup: yield res
+            yield from process_and_yield(res)
 
-    # 3. Custom Path (回归 Beta 7.4 的逻辑，修复自定义扫描失效问题)
+    # 3. Custom Path
     if 'custom' in sources and custom_path and os.path.exists(custom_path):
         ignored_lower = {d.lower() for d in ignored_dirs}
-        exe_folders = defaultdict(list)
-        all_exes_data = {}
-        flat_files = []
 
-        # 遍历
         for root, dirs, files in os.walk(custom_path, topdown=True):
             if check_stop_callback and check_stop_callback(): return
 
+            # 剪枝：跳过垃圾目录
             if is_junk_path(root):
                 dirs[:] = []
                 continue
+
+            # 剪枝：跳过用户忽略目录
             dirs[:] = [d for d in dirs if d.lower() not in ignored_lower and not d.startswith('.')]
 
             current_exes = []
@@ -142,73 +161,50 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                 try:
                     full = os.path.join(root, file)
                     sz = os.path.getsize(full)
-                    if use_size and (sz < min_kb or sz > max_mb): continue
+                    if use_size and (sz < min_kb or size > max_mb): continue
 
-                    current_exes.append(full)
-                    all_exes_data[full] = (full, file, sz, os.path.relpath(root, custom_path))
-                    if not enable_smart_root: flat_files.append(full)
+                    # 模式 A: 平铺 (关闭智能识别) -> 立即 Yield
+                    if not enable_smart_root:
+                        res = {
+                            'name': os.path.splitext(file)[0],
+                            'root_path': root,
+                            'all_exes': [],
+                            'selected_exes': (full,),
+                            'type': 'custom'
+                        }
+                        yield from process_and_yield(res)
+                    else:
+                        # 模式 B: 智能识别 -> 收集当前文件夹
+                        current_exes.append((full, file, sz))
                 except:
                     pass
 
-            if enable_smart_root and current_exes: exe_folders[root] = current_exes
+            # 智能模式：单文件夹处理完，立即分析并 Yield
+            # 这实现了“文件夹级”的实时流，而不是全盘扫描后的延迟显示
+            if enable_smart_root and current_exes:
+                folder_name = os.path.basename(root)
+                # 处理 bin 目录反查上一级
+                if folder_name.lower() == 'bin':
+                    program_name = os.path.basename(os.path.dirname(root))
+                else:
+                    program_name = folder_name
 
-        # 处理逻辑：智能分组 vs 平铺
-        custom_results = []
-        if enable_smart_root:
-            # 排序并找到顶层目录 (Key Logic restored from Beta 7.4)
-            sorted_folders = sorted(exe_folders.keys())
-            top_level_folders = []
-            if sorted_folders:
-                last = sorted_folders[0];
-                top_level_folders.append(last)
-                for curr in sorted_folders[1:]:
-                    if not curr.startswith(last + os.path.sep): top_level_folders.append(curr); last = curr
+                # 评分
+                exe_paths = [x[0] for x in current_exes]
+                ranked = smart_rank_executables(program_name, exe_paths, root)
 
-            program_groups = defaultdict(list);
-            program_roots = {}
-            for folder in top_level_folders:
-                # 处理 bin 目录回溯
-                name = os.path.basename(os.path.dirname(folder)) if os.path.basename(
-                    folder).lower() == 'bin' else os.path.basename(folder)
-                root = os.path.dirname(folder) if os.path.basename(folder).lower() == 'bin' else folder
-                is_sub = False
-                for ex_root in list(program_roots.keys()):
-                    if root.startswith(ex_root + os.path.sep): is_sub = True; break
-                    if ex_root.startswith(root + os.path.sep): del program_roots[ex_root]
-                if not is_sub: program_roots[root] = name
+                details = []
+                for p in ranked:
+                    s = 0
+                    for x in current_exes:
+                        if x[0] == p: s = x[2]; break
+                    details.append((p, os.path.basename(p), s, os.path.relpath(p, custom_path)))
 
-            for full_path in all_exes_data.keys():
-                match_root = None
-                for root in program_roots.keys():
-                    if full_path.startswith(root + os.path.sep):
-                        if match_root is None or len(root) > len(match_root): match_root = root
-                if match_root: program_groups[match_root].append(full_path)
-
-            for root, exe_paths in program_groups.items():
-                name = program_roots[root]
-                ranked = smart_rank_executables(name, exe_paths, root)
-                sel = tuple([ranked[0]]) if ranked else ()
-                # 构造详细数据
-                details = [all_exes_data[p] for p in ranked]
-                custom_results.append(
-                    {'name': name, 'root_path': root, 'all_exes': details, 'selected_exes': sel, 'type': 'custom'})
-        else:
-            # 平铺模式
-            for path in flat_files:
-                custom_results.append({
-                    'name': os.path.splitext(os.path.basename(path))[0],
-                    'root_path': os.path.dirname(path),
-                    'all_exes': [],
-                    'selected_exes': (path,),
+                res = {
+                    'name': program_name,
+                    'root_path': root,
+                    'all_exes': details,
+                    'selected_exes': tuple([ranked[0]]) if ranked else (),
                     'type': 'custom'
-                })
-
-        all_found_items.extend(custom_results)
-        if not enable_dedup:
-            for res in custom_results: yield res
-
-    # 4. 执行去重并 Yield (如果开启了去重)
-    if enable_dedup:
-        deduplicated = deduplicate_programs(all_found_items)
-        for item in deduplicated:
-            yield item
+                }
+                yield from process_and_yield(res)
