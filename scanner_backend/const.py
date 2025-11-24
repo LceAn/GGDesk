@@ -1,14 +1,25 @@
-# scanner_backend/const.py
+import os
+
+# --- 目录定义 ---
+DIR_CONFIG = "config"
+DIR_DATA = "data"
 
 DEFAULT_OUTPUT_FOLDER_NAME = "MyTestShortcuts"
-CONFIG_FILE = "config.ini"
-FILENAME_BLOCKLIST = "blocklist.txt"
-FILENAME_IGNORED_DIRS = "ignored_dirs.txt"
+
+# --- 文件路径 (自动拼接目录) ---
+CONFIG_FILE = os.path.join(DIR_CONFIG, "config.ini")
+
+# 规则文件
+FILENAME_BLOCKLIST = os.path.join(DIR_CONFIG, "blocklist.txt")
+FILENAME_IGNORED_DIRS = os.path.join(DIR_CONFIG, "ignored_dirs.txt")
+FILENAME_PROG_RUNTIMES = os.path.join(DIR_CONFIG, "prog_runtimes.txt")
+FILENAME_BAD_PATH_KEYWORDS = os.path.join(DIR_CONFIG, "bad_path_keywords.txt")
 
 # 数据库文件
-DB_FILE_USER = "user_data.db"
-DB_FILE_CACHE = "cache.db"
+DB_FILE_USER = os.path.join(DIR_DATA, "user_data.db")
+DB_FILE_CACHE = os.path.join(DIR_DATA, "cache.db")
 
+# --- 默认配置 ---
 DEFAULT_CONFIG = {
     'enable_blacklist': 'true',
     'enable_ignored_dirs': 'true',
@@ -21,16 +32,16 @@ DEFAULT_CONFIG = {
     'default_check_existing': 'false',
     'enable_smart_root': 'true',
     'is_first_run': 'true',
-    # 【Beta 9.7 新增】
-    'enable_prog_filter': 'true',  # 过滤编程环境
+    'enable_prog_filter': 'true',
 
     'launcher_icon_size': '72',
     'launcher_show_badges': 'true',
     'launcher_sort_by': 'name',
-    'sidebar_collapsed': 'false'
+    'sidebar_collapsed': 'false',
+    'dedup_threshold': '0.6'
 }
 
-# 常规黑名单
+# --- 默认数据 ---
 DEFAULT_BLOCKLIST = {
     'uninstall.exe', 'unins000.exe', 'unins001.exe', 'setup.exe', 'install.exe',
     'update.exe', 'updater.exe', 'config.exe', 'splash.exe',
@@ -40,17 +51,14 @@ DEFAULT_BLOCKLIST = {
     'elevate.exe', 'runner.exe', 'notification_helper.exe'
 }
 
-# 【Beta 9.7 新增】 编程语言运行环境黑名单
 DEFAULT_PROG_RUNTIMES = {
     'python.exe', 'pythonw.exe', 'pip.exe', 'python3.exe',
     'java.exe', 'javaw.exe', 'javac.exe', 'jshell.exe',
-    'node.exe', 'npm.cmd', 'npx.cmd',
-    'go.exe', 'gofmt.exe',
+    'node.exe', 'npm.cmd', 'npx.cmd', 'go.exe', 'gofmt.exe',
     'gcc.exe', 'g++.exe', 'make.exe', 'cmake.exe', 'gdb.exe',
     'ruby.exe', 'perl.exe', 'php.exe'
 }
 
-# 目录黑洞
 DEFAULT_IGNORED_DIRS = {
     'node_modules', '.git', '.svn', '.idea', '.vscode', '__pycache__',
     'venv', 'env', 'tmp', 'temp', 'cache', 'logs',
@@ -59,7 +67,6 @@ DEFAULT_IGNORED_DIRS = {
     'Microsoft Visual Studio', 'Common7', 'MSBuild', 'Reference Assemblies'
 }
 
-# 路径关键词过滤
 BAD_PATH_KEYWORDS = [
     'runtime', 'framework', 'redist', 'prerequisites', 'installer',
     'debug', 'release', 'amd64', 'x86', 'plugins', 'extensions',
