@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# GGDesk runtime data (user-specific)
+config/config.ini
+config/blocklist.txt
+config/ignored_dirs.txt
+config/prog_runtimes.txt
+config/bad_path_keywords.txt
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Output shortcuts
+MyTestShortcuts/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
