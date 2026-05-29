@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QFileIconProvider, QFrame, QApplication, QStyle
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QMenu, QMessageBox, QFileIconProvider, QFrame, QApplication, QStyle,
+    QLineEdit
 )
-from PySide6.QtCore import Qt, QSize, QFileInfo
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import Qt, QSize, QFileInfo, Signal
+from PySide6.QtGui import QIcon, QAction, QShortcut, QKeySequence
 import os
 import subprocess
 import scanner_backend as backend
@@ -12,43 +13,57 @@ import scanner_backend as backend
 class QuickLaunchPage(QWidget):
     def __init__(self):
         super().__init__()
+        self._all_items = []  # 缓存所有条目用于搜索过滤
         self.build_ui()
 
     def build_ui(self):
-        layout = QVBoxLayout(self);
-        layout.setContentsMargins(20, 20, 20, 20);
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        # 1. 头部欢迎语 (淡雅风格)
-        self.lbl_header = QLabel("👋 嗨，准备启动什么？")
-        self.lbl_header.setStyleSheet("font-size: 22pt; font-weight: 300; color: #555; margin-bottom: 10px;")
-        layout.addWidget(self.lbl_header)
+        # 1. 头部欢迎语 + 搜索框
+        header_layout = QHBoxLayout()
 
-        # 2. 图标列表 (极简风)
+        self.lbl_header = QLabel("👋 嗨，准备启动什么？")
+        self.lbl_header.setStyleSheet("font-size: 22pt; font-weight: 300; color: #555;")
+        header_layout.addWidget(self.lbl_header)
+
+        header_layout.addStretch()
+
+        # 搜索框
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("🔍 搜索应用...")
+        self.search_edit.setFixedWidth(220)
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._filter_items)
+        header_layout.addWidget(self.search_edit)
+
+        layout.addLayout(header_layout)
+
+        # 2. 图标列表
         self.list_widget = QListWidget()
         self.list_widget.setViewMode(QListWidget.IconMode)
         self.list_widget.setResizeMode(QListWidget.Adjust)
         self.list_widget.setMovement(QListWidget.Static)
         self.list_widget.setSpacing(12)
 
-        # QSS: 透明背景，悬停圆角，选中微变
         self.list_widget.setStyleSheet("""
-            QListWidget { 
-                background-color: transparent; 
-                border: none; 
+            QListWidget {
+                background-color: transparent;
+                border: none;
                 outline: none;
             }
-            QListWidget::item { 
+            QListWidget::item {
                 background-color: transparent;
-                border-radius: 10px; 
+                border-radius: 10px;
                 color: #333;
                 padding: 5px;
             }
-            QListWidget::item:hover { 
-                background-color: rgba(0, 0, 0, 0.05); 
+            QListWidget::item:hover {
+                background-color: rgba(0, 0, 0, 0.05);
             }
-            QListWidget::item:selected { 
-                background-color: rgba(0, 120, 215, 0.1); 
+            QListWidget::item:selected {
+                background-color: rgba(0, 120, 215, 0.1);
                 color: #000;
             }
         """)
@@ -59,43 +74,48 @@ class QuickLaunchPage(QWidget):
 
         layout.addWidget(self.list_widget)
 
+        # 3. 底部统计
+        self.lbl_stats = QLabel("")
+        self.lbl_stats.setStyleSheet("color: #999; font-size: 9pt; margin-left: 5px;")
+        layout.addWidget(self.lbl_stats)
+
     def load_data(self):
         self.list_widget.clear()
+        self._all_items = []
         config = backend.load_config()
 
-        # 1. 读取外观设置
+        # 读取外观设置
         size_px = config.getint('Settings', 'launcher_icon_size', fallback=72)
         self.list_widget.setIconSize(QSize(size_px, size_px))
-        # 网格大小稍微比图标大一点，留出文字空间
         self.list_widget.setGridSize(QSize(size_px + 40, size_px + 60))
 
-        # 2. 读取数据
+        # 读取数据
         shortcuts = backend.get_all_shortcuts()
 
-        # 3. 排序逻辑
+        # 排序逻辑
         sort_mode = config.get('Settings', 'launcher_sort_by', fallback='name')
         if sort_mode == 'count':
-            shortcuts.sort(key=lambda x: x['run_count'], reverse=True)  # 热度降序
+            shortcuts.sort(key=lambda x: x['run_count'], reverse=True)
         elif sort_mode == 'added':
-            pass  # 默认就是按时间 (added_at)
+            pass
         else:
-            shortcuts.sort(key=lambda x: x['name'].lower())  # 名称升序
+            shortcuts.sort(key=lambda x: x['name'].lower())
 
         provider = QFileIconProvider()
 
         for row in shortcuts:
-            name = row['name'];
-            exe = row['exe_path'];
-            lnk = row['lnk_path'];
+            name = row['name']
+            exe = row['exe_path']
+            lnk = row['lnk_path']
             src = row['source_type']
-            sid = row['id'];
+            sid = row['id']
             args = row['args']
 
             item = QListWidgetItem(name)
             item.setTextAlignment(Qt.AlignCenter)
-            item.setData(Qt.UserRole, sid);
+            item.setData(Qt.UserRole, sid)
             item.setData(Qt.UserRole + 1, exe)
-            item.setData(Qt.UserRole + 2, args);
+            item.setData(Qt.UserRole + 2, args)
             item.setData(Qt.UserRole + 3, src)
 
             # 图标
@@ -105,20 +125,52 @@ class QuickLaunchPage(QWidget):
             else:
                 item.setIcon(provider.icon(QFileInfo(icon_target)))
 
-            # TODO: 如果 show_badges 为真，这里应该绘制角标 (Beta 8)
-
             self.list_widget.addItem(item)
+            self._all_items.append({
+                'item': item,
+                'name': name.lower(),
+                'exe': (exe or '').lower(),
+            })
+
+        # 更新统计
+        total = len(self._all_items)
+        self.lbl_stats.setText(f"共 {total} 个应用")
+        self._update_stats()
+
+    def _filter_items(self, text):
+        """根据搜索关键词过滤列表"""
+        query = text.lower().strip()
+        visible_count = 0
+
+        for entry in self._all_items:
+            item = entry['item']
+            if not query:
+                item.setHidden(False)
+                visible_count += 1
+            else:
+                match = query in entry['name'] or query in entry['exe']
+                item.setHidden(not match)
+                if match:
+                    visible_count += 1
+
+        self._update_stats(visible_count if query else None)
+
+    def _update_stats(self, visible=None):
+        total = len(self._all_items)
+        if visible is not None and visible != total:
+            self.lbl_stats.setText(f"显示 {visible} / 共 {total} 个应用")
+        else:
+            self.lbl_stats.setText(f"共 {total} 个应用")
 
     def launch_app(self, item):
-        exe_path = item.data(Qt.UserRole + 1);
+        exe_path = item.data(Qt.UserRole + 1)
         args = item.data(Qt.UserRole + 2)
-        source = item.data(Qt.UserRole + 3);
+        source = item.data(Qt.UserRole + 3)
         sid = item.data(Qt.UserRole)
         try:
             if source == 'uwp':
-                # UWP args 格式: shell:AppsFolder\Package!AppId
-                uwp_target = args.replace('shell:AppsFolder\\', 'shell:AppsFolder\\') if 'shell:AppsFolder' in args else args
-                subprocess.Popen(f'explorer.exe {uwp_target}')
+                # args 格式: shell:AppsFolder\Package!AppId
+                subprocess.Popen(f'explorer.exe {args}')
             else:
                 os.startfile(exe_path)
             backend.increment_run_count(sid)
@@ -127,10 +179,13 @@ class QuickLaunchPage(QWidget):
 
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
-        if not item: return
-        menu = QMenu();
+        if not item:
+            return
+        menu = QMenu()
         menu.setStyleSheet(
-            "QMenu { background: white; border: 1px solid #ccc; padding: 5px; } QMenu::item { padding: 5px 20px; } QMenu::item:selected { background: #eee; }")
+            "QMenu { background: white; border: 1px solid #ccc; padding: 5px; } "
+            "QMenu::item { padding: 5px 20px; } "
+            "QMenu::item:selected { background: #eee; }")
 
         menu.addAction("🚀 运行", lambda: self.launch_app(item))
         menu.addAction("🛡️ 管理员运行", lambda: self.run_as_admin(item))
