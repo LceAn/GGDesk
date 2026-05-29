@@ -37,9 +37,10 @@ def scan_existing_shortcuts(folder_path):
                 try:
                     shortcut = shell.CreateShortCut(full_path)
                     results.append((file, shortcut.TargetPath))
-                except:
+                except OSError:
                     results.append((file, "无法读取目标"))
-    except: pass
+    except OSError:
+        pass
     return results
 
 def normalize_path(path):

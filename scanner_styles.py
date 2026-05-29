@@ -28,6 +28,29 @@ QPushButton[objectName="primaryButton"]:disabled { background-color: #CCCCCC; co
 QLineEdit, QTextEdit, QComboBox {
     border-radius: 6px; padding: 6px; border: 1px solid #CCCCCC;
 }
+
+/* 对话框/弹窗通用 */
+QDialog {
+    border-radius: 8px;
+}
+
+QGroupBox {
+    font-weight: bold;
+    border: 1px solid #CCCCCC;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 10px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px;
+    color: #0078D7;
+}
+
+QMessageBox {
+    border-radius: 8px;
+}
 """
 
 LIGHT_QSS = COMMON_QSS + """
@@ -49,6 +72,18 @@ QTreeWidget { border: 1px solid #E5E5E5; border-radius: 6px; alternate-backgroun
 QTreeWidget::item { height: 28px; }
 QTreeWidget::item:selected { background-color: #E0EEF9; color: #000000; }
 QHeaderView::section { background-color: #FFFFFF; border: none; border-bottom: 1px solid #E5E5E5; padding: 8px; font-weight: bold; color: #555555; }
+
+QScrollBar:vertical {
+    background: #F0F0F0; width: 10px; border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #CCCCCC; border-radius: 5px; min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: #AAAAAA; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+QCheckBox { color: #333333; spacing: 6px; }
+QLabel { color: #333333; }
 """
 
 DARK_QSS = COMMON_QSS + """
@@ -72,4 +107,30 @@ QTreeWidget { background-color: #1E1E1E; border: 1px solid #383838; border-radiu
 QTreeWidget::item { height: 28px; }
 QTreeWidget::item:selected { background-color: #005FB8; color: #FFFFFF; }
 QHeaderView::section { background-color: #2D2D2D; border: none; border-bottom: 1px solid #383838; padding: 8px; font-weight: bold; color: #CCCCCC; }
+
+QScrollBar:vertical {
+    background: #2D2D2D; width: 10px; border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #555555; border-radius: 5px; min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: #666666; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+QCheckBox { color: #F0F0F0; spacing: 6px; }
+QLabel { color: #F0F0F0; }
+
+QGroupBox {
+    border-color: #484848;
+}
+QGroupBox::title { color: #4CC2FF; }
+
+QMenu {
+    background-color: #2D2D2D;
+    border: 1px solid #484848;
+    color: #F0F0F0;
+}
+QMenu::item:selected {
+    background-color: #383838;
+}
 """

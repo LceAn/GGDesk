@@ -27,7 +27,7 @@ class AboutDialog(QDialog):
         layout.addWidget(lbl_title)
 
         # 版本号
-        lbl_ver = QLabel("Version: Beta 9.2 (Refactored)")
+        lbl_ver = QLabel("Version: Beta 10.1")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_ver)
 

@@ -15,32 +15,31 @@ class WelcomeDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setStyleSheet("""
             QDialog {
-                background-color: #f0f4f8; /* 整体背景色 */
+                background-color: #f0f4f8;
             }
-            #pageContent { /* 页面内容区背景和边框 */
+            #pageContent {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
-                                            stop:0 #e0f2f7, stop:1 #d1e8ef); /* 浅蓝渐变 */
-                border-radius: 15px; /* 圆角 */
-                margin: 15px; /* 页面内容与对话框边缘的距离 */
+                                            stop:0 #e0f2f7, stop:1 #d1e8ef);
+                border-radius: 15px;
+                margin: 15px;
                 padding: 20px;
-                box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1); /* 阴影 */
             }
             QLabel#title {
                 font-size: 32pt; 
                 font-weight: bold; 
-                color: #2c3e50; /* 深蓝色标题 */
+                color: #2c3e50;
                 margin-bottom: 10px;
             }
             QLabel#subtitle {
                 font-size: 16pt; 
-                color: #3498db; /* 亮蓝色副标题 */
+                color: #3498db;
                 margin-bottom: 30px;
             }
             QLabel#content {
                 font-size: 11pt; 
                 color: #555; 
                 line-height: 1.6;
-                padding: 0 30px; /* 左右内边距，防止文本太宽 */
+                padding: 0 30px;
             }
             QCheckBox {
                 font-size: 10pt;
@@ -60,7 +59,7 @@ class WelcomeDialog(QDialog):
                 background-color: #bbbbbb;
             }
             QPushButton#primaryButton {
-                background-color: #3498db; /* 主要按钮蓝色 */
+                background-color: #3498db;
                 color: white;
             }
             QPushButton#primaryButton:hover {
@@ -128,9 +127,9 @@ class WelcomeDialog(QDialog):
         # 2. 底部控制栏
         bottom_bar = QFrame()
         bottom_bar.setStyleSheet("""
-            background-color: #ffffff; /* 底部控制栏为白色 */
-            border-top: 1px solid #e0e0e0; /* 上边框线 */
-            border-bottom-left-radius: 15px; /* 底部圆角 */
+            background-color: #ffffff;
+            border-top: 1px solid #e0e0e0;
+            border-bottom-left-radius: 15px;
             border-bottom-right-radius: 15px;
         """)
         bar_layout = QHBoxLayout(bottom_bar)

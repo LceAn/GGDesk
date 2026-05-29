@@ -46,7 +46,7 @@ def scan_start_menu(blocklist):
                             if os.path.basename(target).lower() not in blocklist:
                                 yield {'name': os.path.splitext(f)[0], 'path': target, 'root': root,
                                        'type': 'start_menu'}
-                    except:
+                    except (OSError, AttributeError):
                         pass
 
 
@@ -59,7 +59,7 @@ def scan_uwp_apps(blocklist):
                 if item.Name and item.Path:
                     if item.Name.lower() + ".exe" not in blocklist:
                         yield {'name': item.Name, 'path': item.Path, 'root': "Microsoft Store", 'type': 'uwp'}
-    except:
+    except (OSError, AttributeError):
         pass
 
 
@@ -166,7 +166,7 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                 try:
                     full = os.path.join(root, file)
                     sz = os.path.getsize(full)
-                    if use_size and (sz < min_kb or size > max_mb): continue
+                    if use_size and (sz < min_kb or sz > max_mb): continue
 
                     if not enable_smart_root:
                         res = {
@@ -179,7 +179,7 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                         yield from process_and_yield(res)
                     else:
                         current_exes.append((full, file, sz))
-                except:
+                except (OSError, PermissionError):
                     pass
 
             if enable_smart_root and current_exes:

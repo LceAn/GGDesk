@@ -230,10 +230,12 @@ class ScanPage(QWidget):
         super().__init__()
         self.config = backend.load_config()
         self.programs = []
-        self.scan_thread = None;
-        self.scan_worker = None;
+        self.scan_thread = None
+        self.scan_worker = None
         self.icon_provider = QFileIconProvider()
         self.existing_shortcuts = {}
+        # 缓存扫描规则，避免每个 item_found 都读 config
+        self._scan_rules = None
         self.build_ui()
         self.update_rules_summary()
 
@@ -390,9 +392,14 @@ class ScanPage(QWidget):
         backend.save_config(self.config)
         # 不需要刷新列表，只影响后续
 
+    def _get_scan_rules(self):
+        """获取扫描规则（带缓存）"""
+        if self._scan_rules is None:
+            self._scan_rules = backend.load_config()['Rules']
+        return self._scan_rules
+
     def update_rules_summary(self):
-        conf = backend.load_config();
-        rules = conf['Rules']
+        rules = self._get_scan_rules()
         badges = []
         if rules.getboolean('enable_blacklist', True): badges.append("🚫 黑名单")
         if rules.getboolean('enable_ignored_dirs', True): badges.append("📁 忽略黑洞")
@@ -431,6 +438,7 @@ class ScanPage(QWidget):
 
     def open_rules_dialog(self):
         RulesDialog(self).exec()
+        self._scan_rules = None  # 规则可能已修改，清除缓存
         self.update_rules_summary()
 
     def toggle_custom_path(self, checked):
@@ -494,8 +502,7 @@ class ScanPage(QWidget):
     @Slot(dict)
     def on_item_found(self, p):
         self.programs.append(p)
-        conf = backend.load_config();
-        rules = conf['Rules']
+        rules = self._get_scan_rules()
         check_new = rules.getboolean('default_check_new', True)
         check_exist = rules.getboolean('default_check_existing', False)
         target = p['selected_exes'][0] if p['selected_exes'] else ""
@@ -537,6 +544,7 @@ class ScanPage(QWidget):
         self.btn_action.setEnabled(True);
         self.btn_gen.setEnabled(len(self.programs) > 0)
         self.sig_busy.emit(False)
+        self._scan_rules = None  # 清除缓存，下次扫描时重新读取
 
     @Slot()
     def cleanup_thread(self):
