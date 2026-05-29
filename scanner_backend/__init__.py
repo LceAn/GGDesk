@@ -21,7 +21,12 @@ from .manager_db import (
     add_shortcut_to_db,
     get_all_shortcuts,
     delete_shortcut,
-    increment_run_count
+    increment_run_count,
+    get_shortcut_stats,
+    get_top_shortcuts,
+    get_db_size,
+    clear_cache_db,
+    vacuum_databases,
 )
 
 

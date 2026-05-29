@@ -116,6 +116,15 @@ class LaunchManagePage(QWidget):
         l_act.addStretch()
         layout.addWidget(g_act)
 
+        # 热度排行
+        g_stats = QGroupBox("📊 启动热度排行")
+        l_stats = QVBoxLayout(g_stats)
+        self.lbl_top_apps = QLabel("加载中...")
+        self.lbl_top_apps.setStyleSheet("color: #666; font-size: 10pt;")
+        self.lbl_top_apps.setWordWrap(True)
+        l_stats.addWidget(self.lbl_top_apps)
+        layout.addWidget(g_stats)
+
         layout.addStretch()
 
         btn_db = QPushButton("📂 打开数据库高级管理 (Table View)")
@@ -142,4 +151,17 @@ class LaunchManagePage(QWidget):
         backend.save_config(self.config)
         self.sig_settings_changed.emit()
 
-    def load_data(self): pass  # 占位，兼容旧接口
+    def load_data(self):
+        """页面切换时刷新数据"""
+        try:
+            top = backend.get_top_shortcuts(limit=5)
+            if not top:
+                self.lbl_top_apps.setText("暂无启动记录")
+                return
+            lines = []
+            for i, row in enumerate(top, 1):
+                medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i - 1]
+                lines.append(f"{medal} {row['name']}  ({row['run_count']} 次)")
+            self.lbl_top_apps.setText("\n".join(lines))
+        except Exception:
+            self.lbl_top_apps.setText("加载失败")
