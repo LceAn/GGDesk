@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     'launcher_show_badges': 'true',
     'launcher_sort_by': 'name',
     'sidebar_collapsed': 'false',
+    'enable_bad_path': 'true',
     'dedup_threshold': '0.6'
 }
 

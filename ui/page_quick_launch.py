@@ -116,7 +116,9 @@ class QuickLaunchPage(QWidget):
         sid = item.data(Qt.UserRole)
         try:
             if source == 'uwp':
-                subprocess.Popen(f'explorer.exe {args}')
+                # UWP args 格式: shell:AppsFolder\Package!AppId
+                uwp_target = args.replace('shell:AppsFolder\\', 'shell:AppsFolder\\') if 'shell:AppsFolder' in args else args
+                subprocess.Popen(f'explorer.exe {uwp_target}')
             else:
                 os.startfile(exe_path)
             backend.increment_run_count(sid)

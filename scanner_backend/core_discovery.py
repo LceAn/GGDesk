@@ -166,7 +166,7 @@ def discover_programs_generator(sources, custom_path, blocklist, ignored_dirs, c
                 try:
                     full = os.path.join(root, file)
                     sz = os.path.getsize(full)
-                    if use_size and (sz < min_kb or size > max_mb): continue
+                    if use_size and (sz < min_kb or sz > max_mb): continue
 
                     if not enable_smart_root:
                         res = {

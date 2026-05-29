@@ -65,7 +65,7 @@ class Sidebar(QWidget):
         self.layout.addWidget(self.line)
         self.layout.addSpacing(10)
 
-        self.lbl_ver = ClickableLabel("Beta 9.3")
+        self.lbl_ver = ClickableLabel("Beta 10.1")
         self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
         self.lbl_ver.clicked.connect(self.about_requested.emit)
