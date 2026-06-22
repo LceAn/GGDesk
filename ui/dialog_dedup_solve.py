@@ -19,16 +19,16 @@ class DeduplicateSolverDialog(QDialog):
 
     def build_ui(self):
         layout = QVBoxLayout(self);
-        layout.setContentsMargins(20, 20, 20, 20);
-        layout.setSpacing(15)
+        layout.setContentsMargins(24, 24, 24, 24);
+        layout.setSpacing(16)
 
         # 提示头
         header = QLabel("⚠️ 发现疑似重复的程序")
-        header.setStyleSheet("font-size: 14pt; font-weight: bold; color: #D94430;")
+        header.setStyleSheet("font-size: 14pt; font-weight: 600; color: #d93025;")
         layout.addWidget(header)
 
         desc = QLabel("以下程序名称或路径高度相似。请勾选您希望<b>保留</b>的项目。\n(未勾选的项目将不会显示在最终结果中)")
-        desc.setStyleSheet("color: #666; margin-bottom: 10px;")
+        desc.setObjectName("captionLabel")
         layout.addWidget(desc)
 
         # 列表
@@ -65,7 +65,7 @@ class DeduplicateSolverDialog(QDialog):
             group_root = QTreeWidgetItem(self.tree)
             group_root.setText(0, f"冲突组 #{group_idx + 1}")
             group_root.setExpanded(True)
-            group_root.setBackground(0, QBrush(QColor("#F0F0F0")))
+            group_root.setBackground(0, QBrush(QColor("#f1f3f4")))
             group_root.setFirstColumnSpanned(True)
 
             for item_data in group:

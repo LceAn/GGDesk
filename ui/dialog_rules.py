@@ -15,7 +15,11 @@ class ListEditDialog(QDialog):
         self.resize(500, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         layout = QVBoxLayout(self);
-        layout.addWidget(QLabel(help_text))
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+        help_label = QLabel(help_text)
+        help_label.setObjectName("captionLabel")
+        layout.addWidget(help_label)
         self.editor = QTextEdit();
         self.editor.setPlainText("\n".join(sorted(data_set)));
         layout.addWidget(self.editor)
@@ -46,18 +50,16 @@ class RulesDialog(QDialog):
         self.prog_runtimes, _ = backend.manager_rules.load_prog_runtimes()
         self.bad_path_kws, _ = backend.manager_rules.load_bad_path_keywords()
 
-        self.setStyleSheet("""
-            QGroupBox { font-weight: bold; border: 1px solid #CCCCCC; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #0078D7; }
-        """)
         self.build_ui()
         self.load_ui_states()
 
     def build_ui(self):
         layout = QVBoxLayout(self);
-        layout.setContentsMargins(25, 25, 25, 25);
-        layout.setSpacing(20)
-        layout.addWidget(QLabel("🛡️ 扫描器核心规则配置"), 0, Qt.AlignmentFlag.AlignBottom)
+        layout.setContentsMargins(24, 24, 24, 24);
+        layout.setSpacing(18)
+        title = QLabel("🛡️ 扫描器核心规则配置")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignBottom)
 
         # 1. Target
         g_target = QGroupBox("1. 目标文件类型 (Target Extensions)")
@@ -88,9 +90,11 @@ class RulesDialog(QDialog):
         self.spin_min = QSpinBox();
         self.spin_min.setSuffix(" KB");
         self.spin_min.setRange(0, 999999)
+        self.spin_min.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_max = QSpinBox();
         self.spin_max.setSuffix(" MB");
         self.spin_max.setRange(1, 999999)
+        self.spin_max.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         row_size.addWidget(QLabel(" Min:"));
         row_size.addWidget(self.spin_min)
         row_size.addWidget(QLabel(" Max:"));
@@ -143,7 +147,8 @@ class RulesDialog(QDialog):
         h_smart = QHBoxLayout()
         self.chk_smart = QCheckBox("启用智能根目录识别 (Smart Root)")
         btn_help = QPushButton("❓");
-        btn_help.setFixedSize(20, 20);
+        btn_help.setFixedSize(28, 28);
+        btn_help.setObjectName("subtleButton")
         btn_help.setCursor(Qt.PointingHandCursor);
         btn_help.clicked.connect(self.show_smart_help)
         h_smart.addWidget(self.chk_smart);
@@ -155,7 +160,7 @@ class RulesDialog(QDialog):
         self.chk_dedup = QCheckBox("扫描时自动忽略重复项 (Auto-Ignore)")
         threshold = self.config['Rules'].getfloat('dedup_threshold', 0.6)
         lbl_sens = QLabel(f"(当前全局灵敏度: {int(threshold * 100)}% - 在[清理去重]中修改)")
-        lbl_sens.setStyleSheet("color: #888; font-style: italic; margin-left: 5px;")
+        lbl_sens.setObjectName("captionLabel")
         h_dedup.addWidget(self.chk_dedup);
         h_dedup.addWidget(lbl_sens);
         h_dedup.addStretch()

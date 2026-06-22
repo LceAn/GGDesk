@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, Slot, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QCursor, QIcon
+import re
 import scanner_backend as backend
 import scanner_styles as styles
 
@@ -47,6 +48,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("GGDesk Beta 9.4.1")
         self.config = backend.load_config()
+        self.apply_configured_theme()
         backend.init_databases()
 
         self.build_ui()
@@ -56,24 +58,23 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'page_output'): self.on_output_path_changed(self.page_output.out_edit.text())
         self.check_first_run()
 
+    def apply_configured_theme(self):
+        app = QApplication.instance()
+        if not app:
+            return
+        theme = self.config.get('Settings', 'theme', fallback='light')
+        app.setStyleSheet(styles.LIGHT_QSS if theme == 'light' else styles.DARK_QSS)
+
     def setup_statusbar(self):
         self.status_bar = QStatusBar();
         self.setStatusBar(self.status_bar)
-        self.status_bar.setStyleSheet("""
-            QStatusBar { background-color: #FFFFFF; border-top: 1px solid #E5E5E5; min-height: 28px; color: #666666; }
-            QStatusBar::item { border: none; }
-        """)
         self.status_label = QLabel(" 就绪");
-        self.status_label.setStyleSheet("padding-left: 5px;")
+        self.status_label.setObjectName("captionLabel")
         self.status_bar.addWidget(self.status_label, 1)
         self.progress = QProgressBar();
-        self.progress.setFixedWidth(150);
+        self.progress.setFixedWidth(160);
         self.progress.setFixedHeight(4);
         self.progress.setTextVisible(False)
-        self.progress.setStyleSheet("""
-            QProgressBar { background-color: #F0F0F0; border: none; border-radius: 2px; }
-            QProgressBar::chunk { background-color: #0078D7; border-radius: 2px; }
-        """)
         self.progress.setVisible(False);
         self.progress.setRange(0, 0)
         self.status_bar.addPermanentWidget(self.progress)
@@ -88,18 +89,16 @@ class MainWindow(QMainWindow):
         # Sidebar
         self.sidebar = QWidget();
         self.sidebar.setObjectName("sidebar");
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(236)
         sb_layout = QVBoxLayout(self.sidebar);
-        sb_layout.setContentsMargins(10, 10, 10, 10);
-        sb_layout.setSpacing(5)
+        sb_layout.setContentsMargins(12, 14, 12, 14);
+        sb_layout.setSpacing(4)
 
         self.btn_toggle = QPushButton("☰ GGDesk");
-        self.btn_toggle.setObjectName("navButton")
-        self.btn_toggle.setStyleSheet(
-            "font-weight: bold; font-size: 12pt; text-align: left; border: none; padding-left: 15px;")
+        self.btn_toggle.setObjectName("brandButton")
         self.btn_toggle.clicked.connect(self.toggle_sidebar);
         sb_layout.addWidget(self.btn_toggle);
-        sb_layout.addSpacing(10)
+        sb_layout.addSpacing(12)
 
         self.nav_group = QButtonGroup(self);
         self.nav_group.setExclusive(True)
@@ -109,14 +108,13 @@ class MainWindow(QMainWindow):
         def add_cat(title):
             lbl = QLabel(title);
             lbl.setObjectName("navCategory");
-            lbl.setStyleSheet("color: #888; font-size: 9pt; margin-top: 10px; margin-bottom: 5px; margin-left: 5px;")
             sb_layout.addWidget(lbl);
             self.nav_labels.append(lbl);
             return lbl
 
         add_cat(" 快捷启动")
         self.nav_quick = self.add_nav_btn("  快捷启动", QStyle.StandardPixmap.SP_DesktopIcon, 0, sb_layout)
-        self.nav_manage = self.add_nav_btn("  启动管理", QStyle.StandardPixmap.SP_FileDialogListView, 1, sb_layout)
+        self.nav_manage = self.add_nav_btn("  快捷设置", QStyle.StandardPixmap.SP_FileDialogListView, 1, sb_layout)
 
         add_cat(" 工具箱")
         self.nav_scan = self.add_nav_btn("  扫描程序", QStyle.StandardPixmap.SP_ComputerIcon, 2, sb_layout)
@@ -133,17 +131,16 @@ class MainWindow(QMainWindow):
         self.line = QFrame();
         self.line.setFrameShape(QFrame.Shape.HLine);
         self.line.setFrameShadow(QFrame.Shadow.Sunken);
-        self.line.setStyleSheet("border-color: #444444;");
         sb_layout.addWidget(self.line);
         sb_layout.addSpacing(10)
         self.lbl_ver = ClickableLabel("Beta 9.4.1");
         self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter);
-        self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;");
+        self.lbl_ver.setObjectName("captionLabel")
         self.lbl_ver.clicked.connect(self.show_about);
         sb_layout.addWidget(self.lbl_ver)
         self.auth_lbl = ClickableLabel("By LceAn");
         self.auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter);
-        self.auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';");
+        self.auth_lbl.setObjectName("captionLabel")
         self.auth_lbl.clicked.connect(self.show_about);
         sb_layout.addWidget(self.auth_lbl)
         sb_layout.addSpacing(5);
@@ -175,6 +172,7 @@ class MainWindow(QMainWindow):
         self.nav_group.idClicked.connect(self.on_nav_clicked)
         self.nav_quick.setChecked(True);
         self.stack.setCurrentIndex(0)
+        self.page_quick.load_data()
 
         self.page_scan.sig_log.connect(self.page_settings.append_log)
         self.page_scan.sig_status.connect(self.update_status)
@@ -192,7 +190,7 @@ class MainWindow(QMainWindow):
 
     def toggle_sidebar(self):
         is_collapsed = self.sidebar.width() < 100
-        target_width = 220 if is_collapsed else 60
+        target_width = 236 if is_collapsed else 64
         self.sidebar.setFixedWidth(target_width)
         for btn in self.nav_btns:
             btn.setText(btn.full_text if is_collapsed else "")
@@ -200,7 +198,7 @@ class MainWindow(QMainWindow):
             if not is_collapsed:
                 btn.setStyleSheet("text-align: center; padding: 10px;")
             else:
-                btn.setStyleSheet("text-align: left; padding: 12px 15px;")
+                btn.setStyleSheet("text-align: left; padding: 10px 12px;")
         visible = is_collapsed
         for lbl in self.nav_labels: lbl.setVisible(visible)
         self.line.setVisible(visible);
@@ -211,7 +209,7 @@ class MainWindow(QMainWindow):
             self.btn_toggle.setStyleSheet("text-align: center; border: none; font-size: 14pt;")
         else:
             self.btn_toggle.setStyleSheet(
-                "text-align: left; font-weight: bold; font-size: 12pt; border: none; padding-left: 15px;")
+                "text-align: left; font-weight: bold; font-size: 12pt; border: none; padding-left: 12px;")
 
     @Slot(int)
     def on_nav_clicked(self, idx):

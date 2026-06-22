@@ -22,12 +22,13 @@ class AboutDialog(QDialog):
 
         # 标题
         lbl_title = QLabel("GGDesk Shortcut Scanner")
-        lbl_title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #0078D7;")
+        lbl_title.setObjectName("pageTitle")
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_title)
 
         # 版本号
         lbl_ver = QLabel("Version: Beta 9.2 (Refactored)")
+        lbl_ver.setObjectName("captionLabel")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_ver)
 

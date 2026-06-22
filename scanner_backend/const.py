@@ -20,7 +20,19 @@ DB_FILE_USER = os.path.join(DIR_DATA, "user_data.db")
 DB_FILE_CACHE = os.path.join(DIR_DATA, "cache.db")
 
 # --- 默认配置 ---
-DEFAULT_CONFIG = {
+DEFAULT_SETTINGS = {
+    'last_scan_path': '',
+    'output_path': '',
+    'window_geometry': '',
+    'theme': 'light',
+    'is_first_run': 'true',
+    'launcher_icon_size': '72',
+    'launcher_show_badges': 'true',
+    'launcher_sort_by': 'name',
+    'sidebar_collapsed': 'false'
+}
+
+DEFAULT_RULES = {
     'enable_blacklist': 'true',
     'enable_ignored_dirs': 'true',
     'enable_size_filter': 'false',
@@ -31,15 +43,13 @@ DEFAULT_CONFIG = {
     'default_check_new': 'true',
     'default_check_existing': 'false',
     'enable_smart_root': 'true',
-    'is_first_run': 'true',
     'enable_prog_filter': 'true',
-
-    'launcher_icon_size': '72',
-    'launcher_show_badges': 'true',
-    'launcher_sort_by': 'name',
-    'sidebar_collapsed': 'false',
+    'enable_bad_path': 'true',
     'dedup_threshold': '0.6'
 }
+
+# Backward-compatible aggregate for older imports/tools.
+DEFAULT_CONFIG = {**DEFAULT_SETTINGS, **DEFAULT_RULES}
 
 # --- 默认数据 ---
 DEFAULT_BLOCKLIST = {

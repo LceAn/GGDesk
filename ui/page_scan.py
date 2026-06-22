@@ -9,6 +9,7 @@ from PySide6.QtGui import QIcon, QColor, QBrush, QFont, QAction, QCursor
 import os
 import scanner_backend as backend
 from .dialog_rules import RulesDialog
+from .icon_utils import is_shell_app_id, shortcut_icon
 
 
 # --- 线程类 (保持不变) ---
@@ -60,7 +61,7 @@ class GenSuccessDialog(QDialog):
         h_box.addWidget(icon_label)
         title_box = QVBoxLayout();
         lbl_title = QLabel("快捷方式生成成功！");
-        lbl_title.setStyleSheet("font-size: 12pt; font-weight: bold; color: #2E8B57;")
+        lbl_title.setStyleSheet("font-size: 12pt; font-weight: 600; color: #188038;")
         lbl_desc = QLabel(f"共成功创建 <b>{count}</b> 个快捷方式。");
         title_box.addWidget(lbl_title);
         title_box.addWidget(lbl_desc);
@@ -70,12 +71,10 @@ class GenSuccessDialog(QDialog):
         line = QFrame();
         line.setFrameShape(QFrame.Shape.HLine);
         line.setFrameShadow(QFrame.Shadow.Sunken);
-        line.setStyleSheet("color: #DDDDDD;");
         layout.addWidget(line)
         layout.addWidget(QLabel("保存位置:"));
         path_edit = QLineEdit(output_path);
         path_edit.setReadOnly(True);
-        path_edit.setStyleSheet("background-color: transparent; border: none; color: #666666;");
         layout.addWidget(path_edit)
         btn_layout = QHBoxLayout();
         btn_layout.addStretch()
@@ -115,14 +114,14 @@ class RefineWindow(QDialog):
         layout.setContentsMargins(0, 0, 0, 0);
         layout.setSpacing(0)
         header_widget = QWidget();
-        header_widget.setStyleSheet("background-color: #F5F7FA; border-bottom: 1px solid #E0E0E0;")
+        header_widget.setStyleSheet("background-color: #f8fafd; border-bottom: 1px solid #e8eaed;")
         header_layout = QHBoxLayout(header_widget);
         header_layout.setContentsMargins(20, 15, 20, 15);
         header_layout.setSpacing(15)
         lbl_prog_name = QLabel(self.program_data['name']);
-        lbl_prog_name.setStyleSheet("font-size: 14pt; font-weight: bold; color: #333;")
+        lbl_prog_name.setStyleSheet("font-size: 14pt; font-weight: 600; color: #202124;")
         lbl_prog_path = QLabel(f"📂 {self.program_data.get('root_path', '')}");
-        lbl_prog_path.setStyleSheet("color: #888; font-size: 9pt;")
+        lbl_prog_path.setStyleSheet("color: #5f6368; font-size: 9pt;")
         header_layout.addWidget(lbl_prog_name);
         header_layout.addWidget(lbl_prog_path);
         header_layout.addStretch();
@@ -144,7 +143,6 @@ class RefineWindow(QDialog):
         self.tree.setSortingEnabled(True)
         self.tree.setAlternatingRowColors(True);
         self.tree.setIconSize(QSize(20, 20))
-        self.tree.setStyleSheet("QTreeWidget { border: 1px solid #CCCCCC; border-radius: 4px; }")
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked);
         self.tree.itemSelectionChanged.connect(self.update_count_label)
         content_layout.addWidget(self.tree)
@@ -156,7 +154,7 @@ class RefineWindow(QDialog):
         btn_none.setCursor(Qt.PointingHandCursor);
         btn_none.clicked.connect(self.select_none)
         self.lbl_count = QLabel("已选 0 / 共 0 个");
-        self.lbl_count.setStyleSheet("color: #0078D7; font-weight: bold; margin-left: 10px;")
+        self.lbl_count.setObjectName("metricLabel")
         bottom_bar.addWidget(btn_all);
         bottom_bar.addWidget(btn_none);
         bottom_bar.addWidget(self.lbl_count);
@@ -240,8 +238,12 @@ class ScanPage(QWidget):
     def build_ui(self):
         # 主布局
         main_layout = QVBoxLayout(self);
-        main_layout.setContentsMargins(20, 20, 20, 20);
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(28, 26, 28, 26);
+        main_layout.setSpacing(18)
+
+        title = QLabel("🔍 扫描程序")
+        title.setObjectName("pageTitle")
+        main_layout.addWidget(title, 0, Qt.AlignmentFlag.AlignBottom)
 
         # === 1. 控制面板 (Control Panel) ===
         panel_group = QGroupBox("扫描控制台 (Scanner Control)")
@@ -259,7 +261,8 @@ class ScanPage(QWidget):
         self.chk_custom.toggled.connect(self.toggle_custom_path)
 
         btn_rules = QPushButton("⚙️ 规则管理");
-        btn_rules.setFixedWidth(100);
+        btn_rules.setFixedWidth(112);
+        btn_rules.setObjectName("subtleButton")
         btn_rules.setCursor(Qt.PointingHandCursor);
         btn_rules.clicked.connect(self.open_rules_dialog)
 
@@ -278,6 +281,7 @@ class ScanPage(QWidget):
         self.path_edit.setReadOnly(True);
         self.path_edit.setPlaceholderText("请选择要扫描的根目录...")
         btn_browse = QPushButton("📂 选择目录");
+        btn_browse.setObjectName("subtleButton")
         btn_browse.clicked.connect(self.browse_scan_path)
         pb_layout.addWidget(self.path_edit);
         pb_layout.addWidget(btn_browse)
@@ -286,7 +290,7 @@ class ScanPage(QWidget):
         # 1.3 规则概览
         rules_layout = QHBoxLayout()
         self.lbl_rules_summary = QLabel()
-        self.lbl_rules_summary.setStyleSheet("color: #666; font-size: 9pt; font-style: italic; margin-left: 2px;")
+        self.lbl_rules_summary.setObjectName("captionLabel")
         rules_layout.addWidget(self.lbl_rules_summary)
         panel_layout.addLayout(rules_layout)
 
@@ -322,13 +326,14 @@ class ScanPage(QWidget):
         # 【Beta 9.9】 列表设置按钮
         tool_bar.addSpacing(10)
         self.btn_list_opts = QPushButton("⚙️ 列表设置")
-        self.btn_list_opts.setFixedWidth(100)
+        self.btn_list_opts.setFixedWidth(112)
+        self.btn_list_opts.setObjectName("subtleButton")
         self.btn_list_opts.clicked.connect(self.show_list_settings_menu)
         tool_bar.addWidget(self.btn_list_opts)
 
         tool_bar.addStretch()
         self.lbl_count = QLabel("0 个程序");
-        self.lbl_count.setStyleSheet("font-weight: bold; color: #0078D7;")
+        self.lbl_count.setObjectName("metricLabel")
         tool_bar.addWidget(self.lbl_count)
         res_layout.addLayout(tool_bar)
 
@@ -336,14 +341,22 @@ class ScanPage(QWidget):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['程序名称', '推荐执行文件', '来源', '状态', '所在目录'])
         self.tree.setAlternatingRowColors(True);
+        self.tree.setRootIsDecorated(False)
+        self.tree.setUniformRowHeights(True)
         self.tree.setIconSize(QSize(24, 24))
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.tree.itemDoubleClicked.connect(self.open_refine)
         self.tree.itemChanged.connect(self.on_tree_item_changed)
         res_layout.addWidget(self.tree)
 
         # 2.3 提示
         info_bar = QLabel("💡 提示：双击列表项修改详情；灰色代表已存在；橙色代表新发现。")
-        info_bar.setStyleSheet("color: #888; font-size: 9pt;")
+        info_bar.setObjectName("captionLabel")
         res_layout.addWidget(info_bar)
 
         main_layout.addWidget(res_group)
@@ -353,7 +366,7 @@ class ScanPage(QWidget):
         self.chk_add_to_db = QCheckBox("同时添加到“我的桌面”");
         self.chk_add_to_db.setChecked(True)
         self.lbl_path_hint = QLabel("");
-        self.lbl_path_hint.setStyleSheet("color: #999; margin-right: 10px;")
+        self.lbl_path_hint.setObjectName("captionLabel")
         self.btn_gen = QPushButton("✨ 生成选中快捷方式");
         self.btn_gen.setObjectName("primaryButton")
         self.btn_gen.setMinimumHeight(35);
@@ -503,12 +516,12 @@ class ScanPage(QWidget):
             name_disp = "UWP 应用"; norm_target = target
         else:
             name_disp = os.path.basename(target) if target else "未选择"; norm_target = backend.normalize_path(target)
-        status_text = "🆕 新增";
+        status_text = "新增";
         status_tooltip = "新发现的程序";
         status_color = "#2E8B57";
         check_state = Qt.CheckState.Checked if check_new else Qt.CheckState.Unchecked
         if norm_target in self.existing_shortcuts:
-            status_text = "✅ 已存在";
+            status_text = "已存在";
             status_tooltip = f"快捷方式已存在";
             status_color = "#888888";
             check_state = Qt.CheckState.Checked if check_exist else Qt.CheckState.Unchecked
@@ -521,9 +534,11 @@ class ScanPage(QWidget):
         item.setToolTip(3, status_tooltip)
         item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter);
         item.setForeground(2, QBrush(QColor("#005FB8")))
-        if p.get('type') != 'uwp' and target: item.setIcon(1,
-                                                           self.icon_provider.icon(QFileInfo(target))); item.setToolTip(
-            1, target)
+        if target:
+            icon = shortcut_icon(target, "", p.get('type', 'custom'))
+            item.setIcon(0, icon)
+            item.setIcon(1, icon)
+            item.setToolTip(1, target)
         item.setData(0, Qt.ItemDataRole.UserRole, len(self.programs) - 1)
         self.tree.addTopLevelItem(item)
         self.update_selection_count()
@@ -598,7 +613,7 @@ class ScanPage(QWidget):
                     name = os.path.splitext(os.path.basename(exe))[0]
                     if p.get('type') == 'uwp': name = p['name']
                     lnk_path = os.path.join(out, f"{name}.lnk");
-                    args = f"shell:AppsFolder\\{exe}" if p.get('type') == 'uwp' else "";
+                    args = f"shell:AppsFolder\\{exe}" if p.get('type') == 'uwp' and is_shell_app_id(exe) else "";
                     tasks.append((p['name'], exe, lnk_path, args, p.get('type', 'custom')))
         existing = set(os.listdir(out)) if os.path.exists(out) else set();
         ovr = 0
@@ -613,7 +628,10 @@ class ScanPage(QWidget):
         for name, exe, lnk_path, args, src in tasks:
             if backend.create_shortcut(exe, lnk_path, args)[0]:
                 cnt += 1
-                if add_db and backend.add_shortcut_to_db(name, exe, lnk_path, src, args): db_cnt += 1
+                if add_db:
+                    category = backend.suggest_category_for_shortcut(name, exe, src)
+                    if backend.add_shortcut_to_db(name, exe, lnk_path, src, args, category):
+                        db_cnt += 1
         msg = f"创建 {cnt} 个快捷方式。";
         if add_db: msg += f"\n入库 {db_cnt} 个。"
         GenSuccessDialog(self, cnt, out).exec()

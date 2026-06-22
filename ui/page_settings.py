@@ -15,9 +15,11 @@ class SettingsPage(QWidget):
 
     def build_ui(self):
         layout = QVBoxLayout(self);
-        layout.setContentsMargins(30, 30, 30, 30);
-        layout.setSpacing(20)
-        layout.addWidget(QLabel("⚙️ 系统设置"), 0, Qt.AlignmentFlag.AlignBottom)
+        layout.setContentsMargins(28, 26, 28, 26);
+        layout.setSpacing(18)
+        title = QLabel("⚙️ 系统设置")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignBottom)
 
         # 1. 通用设置
         g_gen = QGroupBox("通用 (General)")
@@ -44,9 +46,10 @@ class SettingsPage(QWidget):
         l_data.addWidget(QLabel(f"当前数据库: {backend.DB_FILE_USER}"))
         l_data.addStretch()
         btn_backup = QPushButton("备份数据");
+        btn_backup.setObjectName("subtleButton")
         btn_backup.clicked.connect(lambda: QMessageBox.information(self, "提示", "功能开发中..."))
         btn_reset = QPushButton("重置数据库");
-        btn_reset.setStyleSheet("color: red;")
+        btn_reset.setObjectName("warningButton")
         btn_reset.clicked.connect(self.reset_db)
         l_data.addWidget(btn_backup);
         l_data.addWidget(btn_reset)
@@ -59,7 +62,9 @@ class SettingsPage(QWidget):
         layout.addWidget(g_hot)
 
         # 日志
-        layout.addWidget(QLabel("📜 运行日志"));
+        log_title = QLabel("📜 运行日志")
+        log_title.setObjectName("sectionLabel")
+        layout.addWidget(log_title);
         self.log_view = QTextEdit();
         self.log_view.setReadOnly(True)
         layout.addWidget(self.log_view)

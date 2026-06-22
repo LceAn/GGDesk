@@ -21,8 +21,14 @@ from .manager_db import (
     add_shortcut_to_db,
     get_all_shortcuts,
     delete_shortcut,
-    increment_run_count
+    increment_run_count,
+    get_categories,
+    add_category,
+    rename_category,
+    delete_category,
+    update_shortcut_category
 )
+from .category_ai import suggest_category_for_shortcut, suggest_categories_for_shortcuts
 
 
 # 【Beta 10.0】 环境初始化与文件迁移

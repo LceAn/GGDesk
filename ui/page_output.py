@@ -20,15 +20,18 @@ class OutputPage(QWidget):
 
     def build_ui(self):
         layout = QVBoxLayout(self);
-        layout.setContentsMargins(30, 30, 30, 30);
-        layout.setSpacing(20)
+        layout.setContentsMargins(28, 26, 28, 26);
+        layout.setSpacing(18)
 
-        layout.addWidget(QLabel("💾 快捷方式生成路径设置"), 0, Qt.AlignmentFlag.AlignBottom)
+        title = QLabel("💾 快捷方式生成路径设置")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignBottom)
         path_box = QHBoxLayout()
         self.out_edit = QLineEdit();
         self.out_edit.setPlaceholderText("默认桌面")
         self.out_edit.textChanged.connect(self.on_path_changed)
         btn_out = QPushButton("浏览...");
+        btn_out.setObjectName("subtleButton")
         btn_out.clicked.connect(self.browse_out_path)
         path_box.addWidget(self.out_edit);
         path_box.addWidget(btn_out);
@@ -39,7 +42,9 @@ class OutputPage(QWidget):
         sep.setFrameShadow(QFrame.Shadow.Sunken);
         layout.addWidget(sep)
 
-        layout.addWidget(QLabel("📂 当前路径下已存在的快捷方式 (预览)"), 0, Qt.AlignmentFlag.AlignBottom)
+        section = QLabel("📂 当前路径下已存在的快捷方式 (预览)")
+        section.setObjectName("sectionLabel")
+        layout.addWidget(section, 0, Qt.AlignmentFlag.AlignBottom)
         self.out_tree = QTreeWidget();
         self.out_tree.setHeaderLabels(['快捷方式名称', '指向目标'])
         self.out_tree.setAlternatingRowColors(True);
@@ -47,6 +52,7 @@ class OutputPage(QWidget):
         layout.addWidget(self.out_tree)
 
         btn_refresh = QPushButton("刷新列表");
+        btn_refresh.setObjectName("subtleButton")
         btn_refresh.clicked.connect(self.refresh_existing_shortcuts)
         layout.addWidget(btn_refresh, 0, Qt.AlignmentFlag.AlignRight)
 

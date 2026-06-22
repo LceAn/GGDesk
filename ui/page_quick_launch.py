@@ -1,122 +1,156 @@
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QFileIconProvider, QFrame, QApplication, QStyle
-)
-from PySide6.QtCore import Qt, QSize, QFileInfo
-from PySide6.QtGui import QIcon, QAction
 import os
 import subprocess
+
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
+)
+
 import scanner_backend as backend
+from .icon_utils import is_shell_app_id, shortcut_icon
 
 
 class QuickLaunchPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.shortcuts = []
         self.build_ui()
 
     def build_ui(self):
-        layout = QVBoxLayout(self);
-        layout.setContentsMargins(20, 20, 20, 20);
-        layout.setSpacing(10)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 26, 28, 26)
+        layout.setSpacing(18)
 
-        # 1. 头部欢迎语 (淡雅风格)
+        header = QHBoxLayout()
         self.lbl_header = QLabel("👋 嗨，准备启动什么？")
-        self.lbl_header.setStyleSheet("font-size: 22pt; font-weight: 300; color: #555; margin-bottom: 10px;")
-        layout.addWidget(self.lbl_header)
+        self.lbl_header.setObjectName("pageTitle")
+        header.addWidget(self.lbl_header)
+        header.addStretch()
 
-        # 2. 图标列表 (极简风)
+        self.category_combo = QComboBox()
+        self.category_combo.setMinimumWidth(150)
+        self.category_combo.currentTextChanged.connect(self.apply_filters)
+        header.addWidget(QLabel("分类:"))
+        header.addWidget(self.category_combo)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜索快捷方式")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setMinimumWidth(220)
+        self.search_edit.textChanged.connect(self.apply_filters)
+        header.addWidget(self.search_edit)
+        layout.addLayout(header)
+
+        self.empty_label = QLabel("还没有快捷方式。先去“扫描程序”添加应用。")
+        self.empty_label.setObjectName("captionLabel")
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setMinimumHeight(180)
+        layout.addWidget(self.empty_label)
+
         self.list_widget = QListWidget()
         self.list_widget.setViewMode(QListWidget.IconMode)
         self.list_widget.setResizeMode(QListWidget.Adjust)
         self.list_widget.setMovement(QListWidget.Static)
-        self.list_widget.setSpacing(12)
-
-        # QSS: 透明背景，悬停圆角，选中微变
-        self.list_widget.setStyleSheet("""
-            QListWidget { 
-                background-color: transparent; 
-                border: none; 
-                outline: none;
-            }
-            QListWidget::item { 
-                background-color: transparent;
-                border-radius: 10px; 
-                color: #333;
-                padding: 5px;
-            }
-            QListWidget::item:hover { 
-                background-color: rgba(0, 0, 0, 0.05); 
-            }
-            QListWidget::item:selected { 
-                background-color: rgba(0, 120, 215, 0.1); 
-                color: #000;
-            }
-        """)
-
+        self.list_widget.setSpacing(10)
         self.list_widget.itemDoubleClicked.connect(self.launch_app)
-        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
-
         layout.addWidget(self.list_widget)
 
     def load_data(self):
-        self.list_widget.clear()
         config = backend.load_config()
-
-        # 1. 读取外观设置
         size_px = config.getint('Settings', 'launcher_icon_size', fallback=72)
         self.list_widget.setIconSize(QSize(size_px, size_px))
-        # 网格大小稍微比图标大一点，留出文字空间
-        self.list_widget.setGridSize(QSize(size_px + 40, size_px + 60))
+        self.list_widget.setGridSize(QSize(size_px + 48, size_px + 70))
 
-        # 2. 读取数据
-        shortcuts = backend.get_all_shortcuts()
+        self.shortcuts = list(backend.get_all_shortcuts())
+        self.refresh_category_filter()
+        self.apply_filters()
 
-        # 3. 排序逻辑
+    def refresh_category_filter(self):
+        current = self.category_combo.currentText() or "全部"
+        categories = backend.get_categories(include_all=True)
+        self.category_combo.blockSignals(True)
+        self.category_combo.clear()
+        self.category_combo.addItems(categories)
+        index = self.category_combo.findText(current)
+        self.category_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.category_combo.blockSignals(False)
+
+    def apply_filters(self):
+        self.list_widget.clear()
+        category = self.category_combo.currentText() or "全部"
+        query = self.search_edit.text().strip().lower()
+        config = backend.load_config()
         sort_mode = config.get('Settings', 'launcher_sort_by', fallback='name')
+        show_badges = config.getboolean('Settings', 'launcher_show_badges', fallback=True)
+
+        items = list(self.shortcuts)
+        if category != "全部":
+            items = [row for row in items if (row['category'] or "默认") == category]
+        if query:
+            items = [
+                row for row in items
+                if query in row['name'].lower()
+                or query in (row['exe_path'] or '').lower()
+                or query in (row['category'] or '').lower()
+            ]
+
         if sort_mode == 'count':
-            shortcuts.sort(key=lambda x: x['run_count'], reverse=True)  # 热度降序
+            items.sort(key=lambda x: x['run_count'], reverse=True)
         elif sort_mode == 'added':
-            pass  # 默认就是按时间 (added_at)
+            pass
         else:
-            shortcuts.sort(key=lambda x: x['name'].lower())  # 名称升序
+            items.sort(key=lambda x: x['name'].lower())
 
-        provider = QFileIconProvider()
+        has_shortcuts = bool(items)
+        self.empty_label.setVisible(not has_shortcuts)
+        self.list_widget.setVisible(has_shortcuts)
+        if not self.shortcuts:
+            self.empty_label.setText("还没有快捷方式。先去“扫描程序”添加应用。")
+        elif not items:
+            self.empty_label.setText("没有匹配当前分类或搜索条件的快捷方式。")
 
-        for row in shortcuts:
-            name = row['name'];
-            exe = row['exe_path'];
-            lnk = row['lnk_path'];
-            src = row['source_type']
-            sid = row['id'];
-            args = row['args']
-
-            item = QListWidgetItem(name)
-            item.setTextAlignment(Qt.AlignCenter)
-            item.setData(Qt.UserRole, sid);
-            item.setData(Qt.UserRole + 1, exe)
-            item.setData(Qt.UserRole + 2, args);
-            item.setData(Qt.UserRole + 3, src)
-
-            # 图标
-            icon_target = lnk if os.path.exists(lnk) else exe
-            if src == 'uwp':
-                item.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_DesktopIcon))
-            else:
-                item.setIcon(provider.icon(QFileInfo(icon_target)))
-
-            # TODO: 如果 show_badges 为真，这里应该绘制角标 (Beta 8)
-
+        for row in items:
+            item = QListWidgetItem(row['name'])
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setIcon(shortcut_icon(
+                row['exe_path'],
+                row['lnk_path'],
+                row['source_type'],
+                QApplication.style().standardIcon(QStyle.StandardPixmap.SP_DesktopIcon)
+            ))
+            item.setToolTip(
+                f"{row['name']}\n分类: {row['category'] or '默认'}\n来源: {row['source_type']}\n路径: {row['exe_path']}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, row['id'])
+            item.setData(Qt.ItemDataRole.UserRole + 1, row['exe_path'])
+            item.setData(Qt.ItemDataRole.UserRole + 2, row['args'])
+            item.setData(Qt.ItemDataRole.UserRole + 3, row['source_type'])
+            item.setData(Qt.ItemDataRole.UserRole + 4, row['category'] or "默认")
+            if show_badges:
+                item.setStatusTip(f"{row['category'] or '默认'} · {row['source_type']}")
             self.list_widget.addItem(item)
 
     def launch_app(self, item):
-        exe_path = item.data(Qt.UserRole + 1);
-        args = item.data(Qt.UserRole + 2)
-        source = item.data(Qt.UserRole + 3);
-        sid = item.data(Qt.UserRole)
+        exe_path = item.data(Qt.ItemDataRole.UserRole + 1)
+        args = item.data(Qt.ItemDataRole.UserRole + 2)
+        source = item.data(Qt.ItemDataRole.UserRole + 3)
+        sid = item.data(Qt.ItemDataRole.UserRole)
         try:
-            if source == 'uwp':
-                subprocess.Popen(f'explorer.exe {args}')
+            if source == 'uwp' and args and is_shell_app_id(exe_path):
+                subprocess.Popen(['explorer.exe', args])
             else:
                 os.startfile(exe_path)
             backend.increment_run_count(sid)
@@ -125,32 +159,45 @@ class QuickLaunchPage(QWidget):
 
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
-        if not item: return
-        menu = QMenu();
-        menu.setStyleSheet(
-            "QMenu { background: white; border: 1px solid #ccc; padding: 5px; } QMenu::item { padding: 5px 20px; } QMenu::item:selected { background: #eee; }")
+        if not item:
+            return
 
-        menu.addAction("🚀 运行", lambda: self.launch_app(item))
-        menu.addAction("🛡️ 管理员运行", lambda: self.run_as_admin(item))
+        menu = QMenu()
+        menu.addAction("运行", lambda: self.launch_app(item))
 
-        if item.data(Qt.UserRole + 3) != 'uwp':
-            menu.addSeparator()
-            menu.addAction("📂 打开所在位置",
-                           lambda: subprocess.Popen(f'explorer /select,"{item.data(Qt.UserRole + 1)}"'))
+        exe_path = item.data(Qt.ItemDataRole.UserRole + 1)
+        source = item.data(Qt.ItemDataRole.UserRole + 3)
+        if source != 'uwp' or not is_shell_app_id(exe_path):
+            menu.addAction("管理员运行", lambda: self.run_as_admin(item))
+            if exe_path and os.path.exists(exe_path):
+                menu.addSeparator()
+                menu.addAction("打开所在位置", lambda: subprocess.Popen(['explorer.exe', f'/select,"{exe_path}"']))
+
+        category_menu = menu.addMenu("移动到分类")
+        for category in backend.get_categories():
+            category_menu.addAction(category, lambda c=category: self.move_item_to_category(item, c))
 
         menu.addSeparator()
-        menu.addAction("🗑️ 移除", lambda: self.delete_item(item))
+        menu.addAction("移除", lambda: self.delete_item(item))
         menu.exec(self.list_widget.mapToGlobal(pos))
+
+    def move_item_to_category(self, item, category):
+        backend.update_shortcut_category(item.data(Qt.ItemDataRole.UserRole), category)
+        self.load_data()
 
     def run_as_admin(self, item):
         try:
             import ctypes
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", item.data(Qt.UserRole + 1), None, None, 1)
+            ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", item.data(Qt.ItemDataRole.UserRole + 1), None, None, 1
+            )
         except Exception as e:
             QMessageBox.warning(self, "错误", str(e))
 
     def delete_item(self, item):
-        if QMessageBox.question(self, "确认", f"移除 {item.text()}?",
-                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
-            backend.delete_shortcut(item.data(Qt.UserRole))
+        if QMessageBox.question(
+            self, "确认", f"移除 {item.text()}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) == QMessageBox.StandardButton.Yes:
+            backend.delete_shortcut(item.data(Qt.ItemDataRole.UserRole))
             self.load_data()

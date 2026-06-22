@@ -13,64 +13,6 @@ class WelcomeDialog(QDialog):
         self.setWindowTitle("欢迎使用 GGDesk")
         self.setFixedSize(700, 500)  # 固定大小，更易控制布局
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #f0f4f8; /* 整体背景色 */
-            }
-            #pageContent { /* 页面内容区背景和边框 */
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
-                                            stop:0 #e0f2f7, stop:1 #d1e8ef); /* 浅蓝渐变 */
-                border-radius: 15px; /* 圆角 */
-                margin: 15px; /* 页面内容与对话框边缘的距离 */
-                padding: 20px;
-                box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1); /* 阴影 */
-            }
-            QLabel#title {
-                font-size: 32pt; 
-                font-weight: bold; 
-                color: #2c3e50; /* 深蓝色标题 */
-                margin-bottom: 10px;
-            }
-            QLabel#subtitle {
-                font-size: 16pt; 
-                color: #3498db; /* 亮蓝色副标题 */
-                margin-bottom: 30px;
-            }
-            QLabel#content {
-                font-size: 11pt; 
-                color: #555; 
-                line-height: 1.6;
-                padding: 0 30px; /* 左右内边距，防止文本太宽 */
-            }
-            QCheckBox {
-                font-size: 10pt;
-                color: #666;
-            }
-            QPushButton {
-                padding: 8px 20px;
-                border-radius: 8px;
-                font-size: 10pt;
-                font-weight: bold;
-                background-color: #cccccc;
-                color: #333;
-                border: none;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #bbbbbb;
-            }
-            QPushButton#primaryButton {
-                background-color: #3498db; /* 主要按钮蓝色 */
-                color: white;
-            }
-            QPushButton#primaryButton:hover {
-                background-color: #2980b9;
-            }
-            QPushButton:disabled {
-                background-color: #e0e0e0;
-                color: #999;
-            }
-        """)
 
         self.build_ui()
         self.current_page_idx = 0
@@ -127,12 +69,7 @@ class WelcomeDialog(QDialog):
 
         # 2. 底部控制栏
         bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("""
-            background-color: #ffffff; /* 底部控制栏为白色 */
-            border-top: 1px solid #e0e0e0; /* 上边框线 */
-            border-bottom-left-radius: 15px; /* 底部圆角 */
-            border-bottom-right-radius: 15px;
-        """)
+        bottom_bar.setObjectName("dialogFooter")
         bar_layout = QHBoxLayout(bottom_bar)
         bar_layout.setContentsMargins(30, 15, 30, 15)  # 调整边距
 

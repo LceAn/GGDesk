@@ -19,8 +19,12 @@ class DedupPage(QWidget):
 
     def build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(28, 26, 28, 26)
+        layout.setSpacing(18)
+
+        title = QLabel("🧹 清理去重")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignBottom)
 
         # --- 1. 头部控制区 (Analysis Strategy) ---
         top_box = QGroupBox("数据库深度清理 (Database Cleanup)")
@@ -43,6 +47,7 @@ class DedupPage(QWidget):
 
         # 【Beta 9.1】 保存为全局默认按钮
         btn_save_default = QPushButton("💾 设为全局默认")
+        btn_save_default.setObjectName("subtleButton")
         btn_save_default.setToolTip("将当前滑块值保存为全局默认灵敏度，\n这也将影响[扫描程序]中的去重判断。")
         btn_save_default.clicked.connect(self.save_threshold_global)
 
@@ -66,6 +71,7 @@ class DedupPage(QWidget):
         info_layout.addWidget(QLabel("⚠️ 疑似重复组 (请勾选需要【删除】的项目)"))
         info_layout.addStretch()
         self.lbl_count = QLabel("未开始扫描")
+        self.lbl_count.setObjectName("metricLabel")
         info_layout.addWidget(self.lbl_count)
         layout.addLayout(info_layout)
 
@@ -83,8 +89,7 @@ class DedupPage(QWidget):
         self.chk_del_file.setChecked(False)  # 默认只删数据库记录，安全第一
 
         self.btn_clean = QPushButton("🗑️ 清理选中项")
-        self.btn_clean.setStyleSheet(
-            "background-color: #FFF0F0; color: #D94430; border: 1px solid #E5C0C0; font-weight: bold; padding: 8px;")
+        self.btn_clean.setObjectName("dangerButton")
         self.btn_clean.setEnabled(False)
         self.btn_clean.clicked.connect(self.clean_selected)
 

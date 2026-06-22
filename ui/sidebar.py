@@ -14,7 +14,7 @@ class Sidebar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("sidebar")
-        self.setFixedWidth(220)  # 初始宽度
+        self.setFixedWidth(236)  # 初始宽度
 
         self.nav_btns = []  # 存储按钮引用以便折叠
         self.nav_labels = []  # 存储标题引用以便隐藏
@@ -23,14 +23,12 @@ class Sidebar(QWidget):
 
     def build_ui(self):
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(10, 10, 10, 10)
-        self.layout.setSpacing(5)
+        self.layout.setContentsMargins(12, 14, 12, 14)
+        self.layout.setSpacing(4)
 
         # 1. 汉堡菜单 (Toggle)
         self.btn_toggle = QPushButton("☰ GGDesk")
-        self.btn_toggle.setObjectName("navButton")
-        self.btn_toggle.setStyleSheet(
-            "font-weight: bold; font-size: 12pt; text-align: left; border: none; padding-left: 15px;")
+        self.btn_toggle.setObjectName("brandButton")
         self.btn_toggle.clicked.connect(self.toggle_sidebar)
         self.layout.addWidget(self.btn_toggle)
         self.layout.addSpacing(10)
@@ -43,7 +41,7 @@ class Sidebar(QWidget):
         # --- 菜单定义 ---
         self.add_category(" 快捷启动")
         self.add_nav_btn("  快捷启动", QStyle.StandardPixmap.SP_DesktopIcon, 0)
-        self.add_nav_btn("  启动管理", QStyle.StandardPixmap.SP_FileDialogListView, 1)
+        self.add_nav_btn("  快捷设置", QStyle.StandardPixmap.SP_FileDialogListView, 1)
 
         self.layout.addSpacing(15)
         self.add_category(" 工具箱")
@@ -61,19 +59,18 @@ class Sidebar(QWidget):
         self.line = QFrame()
         self.line.setFrameShape(QFrame.Shape.HLine)
         self.line.setFrameShadow(QFrame.Shadow.Sunken)
-        self.line.setStyleSheet("border-color: #444444;")
         self.layout.addWidget(self.line)
         self.layout.addSpacing(10)
 
         self.lbl_ver = ClickableLabel("Beta 9.3")
         self.lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_ver.setStyleSheet("color: #888888; font-size: 10pt; font-weight: bold;")
+        self.lbl_ver.setObjectName("captionLabel")
         self.lbl_ver.clicked.connect(self.about_requested.emit)
         self.layout.addWidget(self.lbl_ver)
 
         self.auth_lbl = ClickableLabel("By LceAn")
         self.auth_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.auth_lbl.setStyleSheet("color: #666666; font-size: 9pt; font-family: 'Segoe UI';")
+        self.auth_lbl.setObjectName("captionLabel")
         self.auth_lbl.clicked.connect(self.about_requested.emit)
         self.layout.addWidget(self.auth_lbl)
 
@@ -83,7 +80,6 @@ class Sidebar(QWidget):
     def add_category(self, title):
         lbl = QLabel(title)
         lbl.setObjectName("navCategory")
-        lbl.setStyleSheet("color: #888; font-size: 9pt; margin-top: 10px; margin-bottom: 5px; margin-left: 5px;")
         self.layout.addWidget(lbl)
         self.nav_labels.append(lbl)
 
@@ -98,7 +94,7 @@ class Sidebar(QWidget):
     # --- 折叠逻辑 (封装在内部) ---
     def toggle_sidebar(self):
         is_collapsed = self.width() < 100
-        target_width = 220 if is_collapsed else 60
+        target_width = 236 if is_collapsed else 64
         self.setFixedWidth(target_width)
 
         # 处理按钮文字和样式
@@ -108,7 +104,7 @@ class Sidebar(QWidget):
             if not is_collapsed:
                 btn.setStyleSheet("text-align: center; padding: 10px;")
             else:
-                btn.setStyleSheet("text-align: left; padding: 12px 15px;")
+                btn.setStyleSheet("text-align: left; padding: 10px 12px;")
 
         # 处理标签显隐
         visible = is_collapsed
@@ -123,4 +119,4 @@ class Sidebar(QWidget):
             self.btn_toggle.setStyleSheet("text-align: center; border: none; font-size: 14pt;")
         else:
             self.btn_toggle.setStyleSheet(
-                "text-align: left; font-weight: bold; font-size: 12pt; border: none; padding-left: 15px;")
+                "text-align: left; font-weight: bold; font-size: 12pt; border: none; padding-left: 12px;")
