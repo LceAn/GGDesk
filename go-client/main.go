@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -17,18 +18,26 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "GGDeskGo",
+		Title:     "GGDesk",
 		Width:     1280,
 		Height:    820,
-		MinWidth:  1040,
-		MinHeight: 680,
+		MinWidth:  980,
+		MinHeight: 660,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 253, A: 1},
+		// 无边框 + 透明背景：由前端绘制自定义标题栏，配合 Mica 实现圆角玻璃窗口。
+		Frameless:        true,
+		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
+			BackdropType:         windows.Mica,
+			Theme:                windows.SystemDefault,
 		},
 	})
 

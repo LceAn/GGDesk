@@ -6,8 +6,16 @@ export function AddScanResults(arg1) {
   return window['go']['main']['App']['AddScanResults'](arg1);
 }
 
+export function AnalyzeDuplicates(arg1) {
+  return window['go']['main']['App']['AnalyzeDuplicates'](arg1);
+}
+
 export function AutoClassify() {
   return window['go']['main']['App']['AutoClassify']();
+}
+
+export function BackupDatabase() {
+  return window['go']['main']['App']['BackupDatabase']();
 }
 
 export function CreateCategory(arg1) {
@@ -22,12 +30,24 @@ export function DeleteShortcut(arg1) {
   return window['go']['main']['App']['DeleteShortcut'](arg1);
 }
 
+export function GenerateShortcutsFromScan(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GenerateShortcutsFromScan'](arg1, arg2, arg3);
+}
+
 export function GetCategories(arg1) {
   return window['go']['main']['App']['GetCategories'](arg1);
 }
 
+export function GetIconBase64(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetIconBase64'](arg1, arg2, arg3);
+}
+
 export function GetOverview() {
   return window['go']['main']['App']['GetOverview']();
+}
+
+export function GetSettingsBundle() {
+  return window['go']['main']['App']['GetSettingsBundle']();
 }
 
 export function LaunchShortcut(arg1) {
@@ -38,12 +58,40 @@ export function ListShortcuts(arg1) {
   return window['go']['main']['App']['ListShortcuts'](arg1);
 }
 
+export function LogFrontend(arg1) {
+  return window['go']['main']['App']['LogFrontend'](arg1);
+}
+
 export function OpenFileLocation(arg1) {
   return window['go']['main']['App']['OpenFileLocation'](arg1);
 }
 
+export function PreviewOutputShortcuts(arg1) {
+  return window['go']['main']['App']['PreviewOutputShortcuts'](arg1);
+}
+
+export function RemoveDuplicateShortcuts(arg1) {
+  return window['go']['main']['App']['RemoveDuplicateShortcuts'](arg1);
+}
+
 export function RenameCategory(arg1, arg2) {
   return window['go']['main']['App']['RenameCategory'](arg1, arg2);
+}
+
+export function ResetDatabase() {
+  return window['go']['main']['App']['ResetDatabase']();
+}
+
+export function ResolveOutputPath(arg1) {
+  return window['go']['main']['App']['ResolveOutputPath'](arg1);
+}
+
+export function SaveOutputPath(arg1) {
+  return window['go']['main']['App']['SaveOutputPath'](arg1);
+}
+
+export function SaveSettingsBundle(arg1) {
+  return window['go']['main']['App']['SaveSettingsBundle'](arg1);
 }
 
 export function ScanPrograms(arg1) {

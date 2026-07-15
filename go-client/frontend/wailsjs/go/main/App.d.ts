@@ -4,7 +4,11 @@ import {main} from '../models';
 
 export function AddScanResults(arg1:Array<main.ScanResult>):Promise<number>;
 
+export function AnalyzeDuplicates(arg1:number):Promise<main.DedupResult>;
+
 export function AutoClassify():Promise<number>;
+
+export function BackupDatabase():Promise<main.BackupReport>;
 
 export function CreateCategory(arg1:string):Promise<string>;
 
@@ -12,17 +16,37 @@ export function DeleteCategory(arg1:string):Promise<void>;
 
 export function DeleteShortcut(arg1:number):Promise<void>;
 
+export function GenerateShortcutsFromScan(arg1:Array<main.ScanResult>,arg2:string,arg3:boolean):Promise<main.GenerateReport>;
+
 export function GetCategories(arg1:boolean):Promise<Array<string>>;
 
+export function GetIconBase64(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function GetOverview():Promise<main.Overview>;
+
+export function GetSettingsBundle():Promise<main.SettingsBundle>;
 
 export function LaunchShortcut(arg1:number):Promise<void>;
 
 export function ListShortcuts(arg1:main.ShortcutFilter):Promise<Array<main.Shortcut>>;
 
+export function LogFrontend(arg1:string):Promise<void>;
+
 export function OpenFileLocation(arg1:number):Promise<void>;
 
+export function PreviewOutputShortcuts(arg1:string):Promise<Array<main.OutputShortcut>>;
+
+export function RemoveDuplicateShortcuts(arg1:Array<number>):Promise<number>;
+
 export function RenameCategory(arg1:string,arg2:string):Promise<void>;
+
+export function ResetDatabase():Promise<void>;
+
+export function ResolveOutputPath(arg1:string):Promise<string>;
+
+export function SaveOutputPath(arg1:string):Promise<void>;
+
+export function SaveSettingsBundle(arg1:main.SettingsBundle):Promise<void>;
 
 export function ScanPrograms(arg1:main.ScanOptions):Promise<Array<main.ScanResult>>;
 

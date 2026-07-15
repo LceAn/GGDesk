@@ -81,7 +81,7 @@ func (a *App) GenerateShortcutsFromScan(results []ScanResult, outputPath string,
 			name = strings.TrimSuffix(filepath.Base(result.ExePath), filepath.Ext(result.ExePath))
 		}
 		lnkPath := filepath.Join(out, sanitizeFilename(name)+".lnk")
-		args := result.Args()
+		args := uwpArgs(result)
 		if err := createShortcutFile(result.ExePath, lnkPath, args); err != nil {
 			report.Failures = append(report.Failures, name+": "+err.Error())
 			continue
@@ -119,10 +119,10 @@ func (a *App) upsertShortcut(result ScanResult) error {
 	err = tx.QueryRow(`SELECT id FROM shortcuts WHERE exe_path = ?`, result.ExePath).Scan(&id)
 	if err == sql.ErrNoRows {
 		_, err = tx.Exec(`INSERT INTO shortcuts (name, exe_path, lnk_path, source_type, args, category, added_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, result.Name, result.ExePath, result.LnkPath, result.SourceType, result.Args(), category, time.Now().Format(time.RFC3339))
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, result.Name, result.ExePath, result.LnkPath, result.SourceType, uwpArgs(result), category, time.Now().Format(time.RFC3339))
 	} else if err == nil {
 		_, err = tx.Exec(`UPDATE shortcuts SET name = ?, lnk_path = ?, source_type = ?, args = ?, category = ? WHERE id = ?`,
-			result.Name, result.LnkPath, result.SourceType, result.Args(), category, id)
+			result.Name, result.LnkPath, result.SourceType, uwpArgs(result), category, id)
 	}
 	if err != nil {
 		return err

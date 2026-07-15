@@ -55,18 +55,22 @@ type ShortcutFilter struct {
 type ScanOptions struct {
 	CustomPath       string `json:"customPath"`
 	IncludeStartMenu bool   `json:"includeStartMenu"`
+	IncludeUWP       bool   `json:"includeUWP"`
 	Limit            int    `json:"limit"`
 }
 
 type ScanResult struct {
-	Name       string `json:"name"`
-	ExePath    string `json:"exePath"`
-	LnkPath    string `json:"lnkPath"`
-	SourceType string `json:"sourceType"`
-	RootPath   string `json:"rootPath"`
-	Category   string `json:"category"`
-	Status     string `json:"status"`
-	Selected   bool   `json:"selected"`
+	Name         string       `json:"name"`
+	ExePath      string       `json:"exePath"`
+	LnkPath      string       `json:"lnkPath"`
+	Args         string       `json:"args"`
+	SelectedExes []string     `json:"selectedExes"`
+	AllExes      []ScanExeInfo `json:"allExes"`
+	SourceType   string       `json:"sourceType"`
+	RootPath     string       `json:"rootPath"`
+	Category     string       `json:"category"`
+	Status       string       `json:"status"`
+	Selected     bool         `json:"selected"`
 }
 
 func NewApp() *App {
@@ -78,6 +82,11 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.ensureDB(); err != nil {
 		fmt.Println("database startup:", err)
 	}
+}
+
+// LogFrontend 供前端把日志/错误传到后端 stderr（无 devtools 时的调试通道）。
+func (a *App) LogFrontend(message string) {
+	fmt.Println("[FRONTEND]", message)
 }
 
 func (a *App) ensureDB() error {
@@ -95,10 +104,15 @@ func (a *App) ensureDB() error {
 		return err
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// SQLite 单写特性：强制串行连接，避免连接池多连接互相争锁导致 SQLITE_BUSY。
+	// 通过 _pragma 设置：busy_timeout（遇锁等待5秒）、WAL 模式、NORMAL 同步。
+	// modernc.org/sqlite 会优先处理 busy_timeout pragma（见其 driver.go 注释）。
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return err
 	}
+	db.SetMaxOpenConns(1)
 	a.db = db
 	a.dbPath = dbPath
 	return a.initSchema()
@@ -473,77 +487,372 @@ func (a *App) ScanPrograms(options ScanOptions) ([]ScanResult, error) {
 		return nil, err
 	}
 
+	// 加载配置驱动扫描：[Rules] 开关 + 四个列表文件。
+	rules, lists, err := a.loadScanRules()
+	if err != nil {
+		// 配置缺失不致命，降级到默认规则。
+		rules = defaultScanRules()
+		lists = defaultScanLists()
+	}
+
+	// 预处理列表为 map/set，便于快速查找。
+	blocklist := toLowerSet(lists["blocklist"])
+	ignoredDirs := toLowerSet(lists["ignored_dirs"])
+	progRuntimes := toLowerSet(lists["prog_runtimes"])
+	badPathKws := lists["bad_path_keywords"]
+
 	results := []ScanResult{}
-	add := func(result ScanResult) {
+	// 扫描期去重：同名项按源优先级保留高优先级（custom>uwp>start_menu）。
+	seen := map[string]int{}
+
+	add := func(result ScanResult) bool {
 		if len(results) >= limit {
-			return
+			return false
 		}
-		key := normalizeTarget(result.ExePath)
-		if key == "" {
-			key = normalizeTarget(result.LnkPath)
+		key := strings.ToLower(result.Name)
+		if prio, found := seen[key]; found {
+			if sourcePriority(result.SourceType) <= prio {
+				return true // 优先级不高于已存在项，丢弃。
+			}
+			// 优先级更高，移除旧的同类项。
+			for i, r := range results {
+				if strings.ToLower(r.Name) == key {
+					results = append(results[:i], results[i+1:]...)
+					break
+				}
+			}
 		}
-		if existing[key] {
+		seen[key] = sourcePriority(result.SourceType)
+
+		// 计算状态：是否已入库。
+		exeKey := normalizeTarget(result.ExePath)
+		lnkKey := normalizeTarget(result.LnkPath)
+		if (exeKey != "" && existing[exeKey]) || (lnkKey != "" && existing[lnkKey]) {
 			result.Status = "已存在"
-			result.Selected = false
+			result.Selected = stringsEqualFold(rules["default_check_existing"], "true")
 		} else {
 			result.Status = "新增"
-			result.Selected = true
+			result.Selected = stringsEqualFold(rules["default_check_new"], "true")
 		}
 		result.Category = SuggestCategory(result.Name, result.ExePath, result.SourceType)
+		// UWP 的 args 由 AppID 推导。
+		result.Args = uwpArgs(result)
 		results = append(results, result)
+		return true
 	}
 
+	// --- 开始菜单源：解析 .lnk 真实目标 ---
 	if options.IncludeStartMenu {
-		for _, root := range startMenuRoots() {
-			_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-				if err != nil || len(results) >= limit {
-					return nil
-				}
-				if d.IsDir() {
-					return nil
-				}
-				if strings.EqualFold(filepath.Ext(path), ".lnk") {
-					name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-					add(ScanResult{Name: name, ExePath: path, LnkPath: path, SourceType: "start_menu", RootPath: root})
-				}
-				return nil
-			})
+		if stopped := a.scanStartMenu(blocklist, rules, add); stopped {
+			sortAndFinalize(results)
+			return results, nil
 		}
 	}
 
-	custom := strings.TrimSpace(options.CustomPath)
-	if custom != "" {
-		_ = filepath.WalkDir(custom, func(path string, d os.DirEntry, err error) error {
-			if err != nil || len(results) >= limit {
-				return nil
-			}
-			name := strings.ToLower(d.Name())
-			if d.IsDir() {
-				if shouldSkipDir(name) && path != custom {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.EqualFold(filepath.Ext(path), ".exe") || shouldSkipExecutable(name) {
-				return nil
-			}
-			add(ScanResult{
-				Name:       strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
-				ExePath:    path,
-				SourceType: "custom",
-				RootPath:   custom,
-			})
-			return nil
-		})
+	// --- UWP 源：枚举 shell:AppsFolder ---
+	if options.IncludeUWP {
+		if stopped := a.scanUWP(blocklist, add); stopped {
+			sortAndFinalize(results)
+			return results, nil
+		}
 	}
 
+	// --- 自定义目录源：smart_root 评分 / 平铺 ---
+	custom := strings.TrimSpace(options.CustomPath)
+	if custom != "" {
+		a.scanCustom(custom, blocklist, ignoredDirs, progRuntimes, badPathKws, rules, add)
+	}
+
+	sortAndFinalize(results)
+	return results, nil
+}
+
+func sortAndFinalize(results []ScanResult) {
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Status != results[j].Status {
 			return results[i].Status == "新增"
 		}
 		return strings.ToLower(results[i].Name) < strings.ToLower(results[j].Name)
 	})
-	return results, nil
+}
+
+// scanStartMenu 枚举开始菜单的 .lnk 并解析真实目标。
+// 返回 true 表示因达到 limit 提前终止。
+func (a *App) scanStartMenu(blocklist map[string]bool, rules map[string]string, add func(ScanResult) bool) bool {
+	var lnkFiles []string
+	for _, root := range expandStartMenuRoots() {
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if strings.EqualFold(filepath.Ext(path), ".lnk") {
+				lnkFiles = append(lnkFiles, path)
+			}
+			return nil
+		})
+	}
+	// 批量解析提升性能（单次 COM 初始化）。
+	targets := resolveShortcutsBatch(lnkFiles)
+	for i, lnk := range lnkFiles {
+		target := targets[i]
+		if target == "" || !strings.EqualFold(filepath.Ext(target), ".exe") {
+			continue
+		}
+		base := strings.ToLower(filepath.Base(target))
+		if blocklist[base] {
+			continue
+		}
+		name := strings.TrimSuffix(filepath.Base(lnk), filepath.Ext(lnk))
+		if !add(ScanResult{
+			Name:       name,
+			ExePath:    target,
+			LnkPath:    lnk,
+			SourceType: "start_menu",
+			RootPath:   filepath.Dir(lnk),
+		}) {
+			return true
+		}
+	}
+	return false
+}
+
+// scanUWP 枚举 Microsoft Store 应用。
+func (a *App) scanUWP(blocklist map[string]bool, add func(ScanResult) bool) bool {
+	apps, err := enumerateUWPApps()
+	if err != nil {
+		return false
+	}
+	for _, app := range apps {
+		// UWP 的 "exe 名" 约定为 AppID+".exe" 以复用黑名单逻辑。
+		if blocklist[strings.ToLower(app.AppID)+".exe"] {
+			continue
+		}
+		if !add(ScanResult{
+			Name:       app.Name,
+			ExePath:    app.AppID,
+			SourceType: "uwp",
+			RootPath:   "Microsoft Store",
+		}) {
+			return true
+		}
+	}
+	return false
+}
+
+// scanCustom 扫描自定义目录。smart_root 开启时每目录评分选最优 exe。
+func (a *App) scanCustom(customPath string, blocklist, ignoredDirs, progRuntimes map[string]bool, badPathKws []string, rules map[string]string, add func(ScanResult) bool) {
+	exts := parseTargetExtensions(rules["target_extensions"])
+	if len(exts) == 0 {
+		exts = []string{".exe"}
+	}
+	smartRoot := stringsEqualFold(rules["enable_smart_root"], "true")
+	useSize := stringsEqualFold(rules["enable_size_filter"], "true")
+	minBytes := atoiSafe(rules["min_kb"]) * 1024
+	maxBytes := atoiSafe(rules["max_mb"]) * 1024 * 1024
+	filterProg := stringsEqualFold(rules["enable_prog_filter"], "true")
+	filterBadPath := stringsEqualFold(rules["enable_bad_path"], "true")
+
+	// smart_root 模式按目录聚合候选；否则平铺逐个输出。两者共用一次遍历。
+	byDir := map[string][]ScanExeInfo{}
+	dirOrder := []string{}
+
+	_ = filepath.WalkDir(customPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		nameLower := strings.ToLower(name)
+
+		if d.IsDir() {
+			if path == customPath {
+				return nil
+			}
+			// 黑洞目录精确匹配 + 隐藏目录 + 动态垃圾路径。
+			if ignoredDirs[nameLower] || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			if filterBadPath && isJunkPath(path, badPathKws) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// 扩展名 / 黑名单精确文件名 / 编程运行时过滤。
+		ext := strings.ToLower(filepath.Ext(name))
+		if !containsFold(exts, ext) {
+			return nil
+		}
+		if blocklist[nameLower] {
+			return nil
+		}
+		if filterProg && progRuntimes[nameLower] {
+			return nil
+		}
+		info, serr := d.Info()
+		if serr != nil {
+			return nil
+		}
+		size := info.Size()
+		if useSize && (size < int64(minBytes) || size > int64(maxBytes)) {
+			return nil
+		}
+
+		full := path
+		if !smartRoot {
+			// 平铺模式：直接列出每个 exe。
+			add(ScanResult{
+				Name:         strings.TrimSuffix(name, filepath.Ext(name)),
+				ExePath:      full,
+				SourceType:   "custom",
+				RootPath:     filepath.Dir(full),
+				AllExes:      []ScanExeInfo{{Path: full, Name: name, Size: size, RelPath: relPath(full, customPath)}},
+				SelectedExes: []string{full},
+			})
+			return nil
+		}
+
+		// smart_root 模式：按目录收集候选。
+		dir := filepath.Dir(path)
+		if _, ok := byDir[dir]; !ok {
+			dirOrder = append(dirOrder, dir)
+		}
+		byDir[dir] = append(byDir[dir], ScanExeInfo{
+			Path:    full,
+			Name:    name,
+			Size:    size,
+			RelPath: relPath(full, customPath),
+		})
+		return nil
+	})
+
+	// smart_root 后处理：每目录评分选最优。
+	for _, dir := range dirOrder {
+		candidates := byDir[dir]
+		if len(candidates) == 0 {
+			continue
+		}
+		folderName := filepath.Base(dir)
+		programName := folderName
+		if strings.ToLower(folderName) == "bin" {
+			programName = filepath.Base(filepath.Dir(dir))
+		}
+		ranked := smartRankExecutables(programName, candidates, dir)
+		selected := ""
+		if len(ranked) > 0 {
+			selected = ranked[0].Path
+		}
+		selectedList := []string{}
+		if selected != "" {
+			selectedList = append(selectedList, selected)
+		}
+		add(ScanResult{
+			Name:         programName,
+			ExePath:      selected,
+			SourceType:   "custom",
+			RootPath:     dir,
+			AllExes:      ranked,
+			SelectedExes: selectedList,
+		})
+	}
+}
+
+func (a *App) loadScanRules() (map[string]string, map[string][]string, error) {
+	bundle, err := a.GetSettingsBundle()
+	if err != nil {
+		return nil, nil, err
+	}
+	return bundle.Rules, bundle.Lists, nil
+}
+
+func defaultScanRules() map[string]string {
+	return mergeDefaults(map[string]string{}, defaultRules)
+}
+
+func defaultScanLists() map[string][]string {
+	out := map[string][]string{}
+	for k, v := range defaultLists {
+		out[k] = v
+	}
+	return out
+}
+
+func sourcePriority(t string) int {
+	switch t {
+	case "custom":
+		return 3
+	case "uwp":
+		return 2
+	case "start_menu":
+		return 1
+	}
+	return 0
+}
+
+func parseTargetExtensions(value string) []string {
+	parts := strings.Split(value, ",")
+	exts := []string{}
+	for _, p := range parts {
+		e := strings.TrimSpace(strings.ToLower(p))
+		if e != "" {
+			exts = append(exts, e)
+		}
+	}
+	return exts
+}
+
+func containsFold(list []string, target string) bool {
+	for _, v := range list {
+		if strings.EqualFold(v, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func toLowerSet(items []string) map[string]bool {
+	set := map[string]bool{}
+	for _, item := range items {
+		key := strings.TrimSpace(strings.ToLower(item))
+		if key != "" {
+			set[key] = true
+		}
+	}
+	return set
+}
+
+func stringsEqualFold(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+func atoiSafe(s string) int {
+	s = strings.TrimSpace(s)
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+func relPath(full, base string) string {
+	rel, err := filepath.Rel(base, full)
+	if err != nil {
+		return full
+	}
+	return rel
+}
+
+// uwpArgs 为 UWP 类型的结果生成 shell:AppsFolder 启动参数。
+func uwpArgs(r ScanResult) string {
+	if r.SourceType == "uwp" && r.ExePath != "" && !looksLikeFilesystemPath(r.ExePath) {
+		return "shell:AppsFolder\\" + r.ExePath
+	}
+	return ""
 }
 
 func (a *App) AddScanResults(results []ScanResult) (int, error) {
@@ -576,10 +885,10 @@ func (a *App) AddScanResults(results []ScanResult) (int, error) {
 		err := tx.QueryRow(`SELECT id FROM shortcuts WHERE exe_path = ?`, r.ExePath).Scan(&id)
 		if err == sql.ErrNoRows {
 			_, err = tx.Exec(`INSERT INTO shortcuts (name, exe_path, lnk_path, source_type, args, category, added_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`, name, r.ExePath, r.LnkPath, r.SourceType, r.Args(), category, time.Now().Format(time.RFC3339))
+				VALUES (?, ?, ?, ?, ?, ?, ?)`, name, r.ExePath, r.LnkPath, r.SourceType, r.Args, category, time.Now().Format(time.RFC3339))
 		} else if err == nil {
 			_, err = tx.Exec(`UPDATE shortcuts SET name = ?, lnk_path = ?, source_type = ?, args = ?, category = ? WHERE id = ?`,
-				name, r.LnkPath, r.SourceType, r.Args(), category, id)
+				name, r.LnkPath, r.SourceType, r.Args, category, id)
 		}
 		if err != nil {
 			return count, err
@@ -587,13 +896,6 @@ func (a *App) AddScanResults(results []ScanResult) (int, error) {
 		count++
 	}
 	return count, tx.Commit()
-}
-
-func (r ScanResult) Args() string {
-	if r.SourceType == "uwp" && r.ExePath != "" && !looksLikeFilesystemPath(r.ExePath) {
-		return "shell:AppsFolder\\" + r.ExePath
-	}
-	return ""
 }
 
 func (a *App) existingTargets() (map[string]bool, error) {
@@ -618,39 +920,6 @@ func (a *App) existingTargets() (map[string]bool, error) {
 	return existing, rows.Err()
 }
 
-func startMenuRoots() []string {
-	roots := []string{}
-	programData := os.Getenv("ProgramData")
-	if programData != "" {
-		roots = append(roots, filepath.Join(programData, "Microsoft", "Windows", "Start Menu", "Programs"))
-	}
-	appData := os.Getenv("APPDATA")
-	if appData != "" {
-		roots = append(roots, filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs"))
-	}
-	return roots
-}
-
-func shouldSkipDir(name string) bool {
-	skips := []string{".git", "node_modules", "__pycache__", "cache", "logs", "backup", "temp", "tmp", "driver", "runtime", "redist"}
-	for _, skip := range skips {
-		if name == skip || strings.Contains(name, skip) {
-			return true
-		}
-	}
-	return false
-}
-
-func shouldSkipExecutable(name string) bool {
-	bad := []string{"uninstall", "unins", "setup", "install", "update", "crashpad", "helper", "service", "driver", "broker"}
-	for _, word := range bad {
-		if strings.Contains(name, word) {
-			return true
-		}
-	}
-	return false
-}
-
 func cleanCategory(name string) string {
 	clean := strings.TrimSpace(name)
 	if clean == "" {
@@ -666,32 +935,4 @@ func normalizeTarget(value string) string {
 func looksLikeFilesystemPath(value string) bool {
 	value = strings.TrimSpace(value)
 	return strings.Contains(value, ":\\") || strings.Contains(value, ":/") || strings.HasPrefix(value, "\\\\")
-}
-
-func SuggestCategory(name, exePath, sourceType string) string {
-	text := strings.ToLower(name + " " + exePath + " " + sourceType)
-	categories := []struct {
-		name     string
-		keywords []string
-	}{
-		{"开发", []string{"code", "cursor", "codex", "visual studio", "vscode", "goland", "pycharm", "webstorm", "datagrip", "idea", "intellij", "phpstorm", "clion", "terminal", "git", "node", "python", "go.exe", "docker"}},
-		{"AI 工具", []string{"chatgpt", "openai", "copilot", "claude", "gemini", "comfyui", "stable diffusion"}},
-		{"设计", []string{"figma", "photoshop", "illustrator", "paint", "画图", "sketch", "xd", "blender", "creator"}},
-		{"游戏", []string{"steam", "epic", "xbox", "game", "gaming", "battle.net", "riot", "minecraft"}},
-		{"办公", []string{"word", "excel", "powerpoint", "office", "outlook", "onenote", "pdf", "notion", "wps", "copilot"}},
-		{"浏览器", []string{"chrome", "edge", "firefox", "browser", "arc", "brave", "opera"}},
-		{"通讯", []string{"wechat", "weixin", "qq", "teams", "discord", "telegram", "slack", "zoom"}},
-		{"媒体", []string{"player", "music", "video", "media", "clipchamp", "photos", "zune", "obs", "vlc", "spotify", "照片", "媒体"}},
-		{"云盘", []string{"onedrive", "dropbox", "drive", "icloud", "synology", "网盘"}},
-		{"安全", []string{"1password", "password", "defender", "security", "vpn", "authenticator"}},
-		{"系统工具", []string{"cmd", "powershell", "control", "settings", "system", "disk", "cleanup", "管理", "配置", "诊断", "终端"}},
-	}
-	for _, category := range categories {
-		for _, keyword := range category.keywords {
-			if strings.Contains(text, keyword) {
-				return category.name
-			}
-		}
-	}
-	return defaultCategory
 }
