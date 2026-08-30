@@ -1,6 +1,6 @@
 module GGDeskGo
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/go-ole/go-ole v1.3.0
