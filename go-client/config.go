@@ -227,6 +227,16 @@ func sortedUnique(values []string) []string {
 			result = append(result, clean)
 		}
 	}
-	sort.Strings(result)
+	// Keep configuration lists deterministic while treating casing consistently.
+	// A plain sort.Strings would place upper-case entries before lower-case ones
+	// (for example, "Beta" before "alpha"), which is surprising for users and
+	// makes case-insensitive de-duplication non-deterministic across edits.
+	sort.SliceStable(result, func(i, j int) bool {
+		left, right := strings.ToLower(result[i]), strings.ToLower(result[j])
+		if left == right {
+			return result[i] < result[j]
+		}
+		return left < right
+	})
 	return result
 }

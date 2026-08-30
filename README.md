@@ -1,97 +1,65 @@
-# 🚀 GGDesk
+# GGDesk
 
-> **极简、智能的 Windows 桌面快捷方式启动与管理工具。** > *A Smart Desktop Shortcut Launcher & Manager.*
+GGDesk 是一个面向 Windows 的桌面快捷方式扫描、分类和启动工具。仓库当前同时保留旧版 Python 代码和正在迁移的 Go/Wails 客户端；新功能优先进入 `go-client/`，`legacy/` 只用于迁移参考。
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
-[![UI Framework](https://img.shields.io/badge/UI-PySide6-green.svg)](https://doc.qt.io/qtforpython/)
-[![Status](https://img.shields.io/badge/Status-Beta%206.0-orange.svg)](./README/UpdateLog.md)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+## 当前实现
 
----
+Go/Wails 客户端已经支持：
 
-## 📖 简介 (Introduction)
+- 读取或初始化本地 SQLite 快捷方式数据库
+- 扫描开始菜单、UWP 和自定义目录中的程序
+- 搜索、分类、重命名/删除分类和快捷方式归类
+- 规则驱动的黑名单、忽略目录、扩展名和大小过滤
+- 本地智能分类建议
 
-**GGDesk** 旨在解决 Windows 用户在管理大量免安装程序（Portable Apps）时遇到的痛点。它不再强迫用户手动创建每一个快捷方式，而是通过智能扫描和算法，一键生成并管理你的桌面入口。
+仍在迁移或依赖 Windows 原生环境的能力包括图标提取、`.lnk` 深度解析、全局热键和长任务进度。旧 Python/Qt 实现不会被当作 Go 客户端的已完成能力。
 
-### 🎯 解决痛点 (Pain Points Solved)
-1.  **免安装程序的噩梦**：下载了许多绿色版软件，文件夹层级深，每次都要手动发送快捷方式到桌面？GGDesk 可以一键扫描并自动生成。
-2.  **分类的繁琐性**：面对桌面上杂乱无章的图标感到头大？(🚧 *正在开发：借助 AI 自动化分类整理*)
-3.  **识别困难**：一个目录下有 `app.exe`, `uninstall.exe`, `update.exe`，不知道点哪个？GGDesk 的智能评分算法帮你自动锁定主程序。
+## 架构
 
----
-
-## ✨ 核心功能 (Features)
-
-* **🔍 全能扫描**：支持扫描 **自定义文件夹**、**系统开始菜单** 以及 **Microsoft Store (UWP)** 应用。
-* **🧠 智能评分算法**：基于分词匹配 (Token Matching) 和目录深度权重的算法，精准识别主程序 (如自动推荐 `idea64.exe` 而非 `launcher.exe`)。
-* **🛡️ 规则引擎**：
-    * **文件过滤**：支持黑名单、文件大小限制 (KB/MB)、扩展名筛选。
-    * **黑洞目录**：自动跳过 `node_modules`, `.git` 等无关目录，极速扫描。
-* **🎨 现代 UI**：基于 PySide6 的 Fluent 风格界面，支持 **暗黑/明亮** 主题切换。
-* **🚦 智能查重**：生成前自动检测目标路径下已存在的快捷方式，避免重复和覆盖。
-
----
-
-## 📚 文档导航 (Documentation)
-
-为了保持根目录整洁，详细文档已归档至 `README/` 目录：
-
-| 模块 | 说明 | 链接 |
-| :--- | :--- | :--- |
-| **🔮 未来规划** | 查看项目的后续开发计划、AI 集成路线图。 | [点击查看 Roadmap](./README/Roadmap.md) |
-| **📝 更新记录** | 查看从 Alpha 到 Beta 版本的详细迭代日志。 | [点击查看 UpdateLog](./README/UpdateLog.md) |
-| **📂 项目结构** | 了解前后端分离架构及各模块职责。 | [点击查看 ProjectStructure](./README/ProjectStructure.md) |
-
----
-
-## 🛠️ 快速开始 (Quick Start)
-
-### 环境要求
-* Windows 10 / 11
-* Python 3.11+
-
-### 安装依赖
-```bash
-pip install PySide6 pywin32
-````
-
-### 运行程序
-
-```bash
-python main.py
+```text
+go-client/
+├── Go/Wails 后端、SQLite 访问和扫描逻辑
+├── frontend/             Vite 前端
+└── build/                Wails 构建配置与平台资源
+legacy/                   Python/Qt 旧实现，仅作迁移参考
+config/                   扫描规则和默认配置
+data/                     本地运行时数据库（不应提交）
 ```
 
------
+## 开发与验证
 
-## 📂 项目结构简述
+需要 Go 1.25+、Node.js 22+；完整桌面构建还需要 Wails CLI 和 Windows 环境。
 
-GGDesk 采用 **前后端分离** 与 **模块化** 的设计架构。
+```bash
+cd go-client
+npm ci --prefix frontend
+npm run build --prefix frontend
+go test ./...
+```
 
-  * **前端 (Frontend)**：基于 `PySide6 (Qt)`，负责界面渲染与交互。
-  * **后端 (Backend)**：纯 Python 逻辑，负责文件扫描、系统调用与配置管理。
-  * **通信 (Communication)**：二者通过 Qt 的信号槽 (`Signal/Slot`) 机制解耦，确保界面流畅。
+`go test` 验证配置解析、目标规范化和扫描辅助逻辑；GitHub Actions 会在 Linux 上执行前端构建与 Go 测试。Linux/macOS 环境不能替代 Windows 真机的 Wails、Shell/COM 和快捷方式验收。
 
-*(详细代码结构说明请查阅 [ProjectStructure](https://www.google.com/search?q=./README/ProjectStructure.md))*
+## 数据与隐私
 
------
+`data/` 下的 SQLite 数据库、WAL/SHM 文件和运行日志属于本地状态，已加入 `.gitignore`。不要提交包含个人程序路径、快捷方式目标或其他本地环境信息的数据库；发布前请检查 `git diff --cached`。
 
-## 👨‍💻 关于作者
+## 文档
 
-**By LceAn**
+- [项目结构](README/ProjectStructure.md)
+- [路线图](README/Roadmap.md)
+- [更新记录](README/UpdateLog.md)
+- [Go 客户端说明](go-client/README.md)
 
-  * GitHub: [https://github.com/LceAn](https://github.com/LceAn)
-  * Project: [https://github.com/LceAn/GGDesk](https://github.com/LceAn/GGDesk)
+## 许可证
 
------
-
----
+仓库当前没有根目录 `LICENSE` 文件。除非另行补充许可，不应把本项目作为已授权的开源组件再分发。
 
 <!-- repo-readme-standard:v1 -->
 ## 仓库维护信息
 
-- 项目类型：产品/工具
-- 当前状态：近期维护
+- 项目类型：Windows 桌面工具
+- 当前状态：Go/Wails 迁移中
 - 可见性：public
-- 维护节奏：每月只选 1-2 个小更新
-- 相关仓库：无已确认的重复仓库关系；如需合并请先核对功能边界。
-- 维护边界：普通文档和代码更新可直接提交；归档、删除、历史重写或强制推送需单独确认。
+- 维护节奏：按月验证 Go 客户端、前端构建和 Windows 专项能力
+- 相关仓库：未发现功能相同、可直接合并的仓库
+- 维护边界：归档、删除、历史重写或强制推送需单独确认

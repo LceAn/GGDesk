@@ -1,65 +1,21 @@
-# GGDeskGo
+# GGDesk Go/Wails 客户端
 
-GGDeskGo is a parallel Go/Wails migration of the existing Python/Qt GGDesk app.
+这是 GGDesk 的 Go/Wails 迁移客户端，前端位于 `frontend/`，后端和 SQLite 数据访问位于当前目录。
 
-The Python version remains in the repository root. A working-tree snapshot was also created at:
+## 本地命令
 
-```text
-I:\github\GGDesk_python_snapshot_20260604_120740.zip
-```
-
-## Stack
-
-- Go backend with Wails v2
-- Vanilla Vite frontend
-- SQLite storage using the existing `data/user_data.db`
-
-## Current Scope
-
-- Reads and initializes the current shortcut database.
-- Lists shortcuts with search, category filter, and sorting.
-- Launches shortcuts from the Go backend.
-- Supports category create, rename, delete, and per-shortcut assignment.
-- Provides local smart category suggestions.
-- Provides a first-pass scanner for Start Menu `.lnk` files and custom-path `.exe` files.
-
-## Local Toolchain
-
-This machine did not have a system `go` command, so a portable Go SDK was installed under:
-
-```text
-C:\Users\LceAn\.cache\codex-runtimes\go-sdk\go1.26.4\go\bin\go.exe
-```
-
-Wails CLI was installed at:
-
-```text
-C:\Users\LceAn\go\bin\wails.exe
-```
-
-## Commands
-
-From `go-client`:
-
-```powershell
-$env:PATH="$env:USERPROFILE\.cache\codex-runtimes\go-sdk\go1.26.4\go\bin;$env:USERPROFILE\go\bin;$env:PATH"
+```bash
+npm ci --prefix frontend
+npm run build --prefix frontend
 go test ./...
-cd frontend
-cmd /c npm run build
-cd ..
-wails build
 ```
 
-The built app is:
+Wails 桌面打包仍需安装 Wails CLI，并在目标平台（尤其是 Windows）验证原生快捷方式、图标和窗口行为。`frontend/dist/.gitkeep` 只保证没有前端构建产物时 Go 包仍可测试；正式打包前必须先执行前端构建。
 
-```text
-go-client\build\bin\go-client.exe
-```
+## 数据路径
 
-## Next Migration Steps
+程序从项目根目录的 `data/user_data.db` 读取本地状态，运行时 WAL/SHM 文件不会纳入版本控制。不要把个人快捷方式数据库复制到公开 issue 或构建日志。
 
-- Move icon extraction and caching into Go.
-- Replace scan-time `.lnk` handling with native Windows Shell/COM resolution.
-- Move long scans to cancellable background jobs with progress events.
-- Port duplicate cleanup and path generation workflows.
-- Add hotkey/global launcher behavior.
+## 迁移边界
+
+当前优先维护 Go/Wails 客户端。`legacy/` 中的 Python/Qt 代码保留用于功能对照，尚未承诺与 Go 客户端行为完全一致。
